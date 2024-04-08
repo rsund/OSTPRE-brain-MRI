@@ -1,0 +1,254 @@
+
+library(dplyr)
+#bids <- "P:/ostpre_bids"
+#bids <- "/research/groups/ostpre/ostpre_bids"
+
+qs::qload(file=file.path(bids,"clinical/mem_dates.qs"))
+qs::qload(file=file.path(bids,"nifti/tags.qs"))
+
+reltags <- tags |>
+  mutate(
+    StudyID=as.character(StudyInstanceUID),
+    SeriesID=as.character(SeriesInstanceUID),
+    MF=as.character(Manufacturer),
+    SN=as.character(DeviceSerialNumber),
+    MagStre=as.character(MagneticFieldStrength)
+  ) |>
+  select(lomno1,ses,StudyID,SeriesID,MagneticFieldStrength,Manufacturer,ManufacturersModelName,DeviceSerialNumber,StationName,MF,SN,MagStre) |>
+  distinct() |>
+  mutate(
+    SN=case_when(
+      SN=="NULL" ~ "25345",
+      TRUE ~ SN
+    )
+  )
+
+imgdata <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_CAT12_summary_measures.xlsx")) |>
+  mutate(
+    lomno1=as.numeric(gsub("sub-","",subj)),
+    ses=as.numeric(gsub("ses-","",session))
+  ) |>
+  anti_join(readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx")), by=c("subj","session"))
+
+sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_names=FALSE) |>
+  mutate(
+    lomno1=as.numeric(substr(X6,4,8)),
+    ses=as.numeric(gsub("_","",substr(X6,14,15))),
+    sesdate=as.Date(X1)
+  ) |>
+  arrange(lomno1,ses) |>
+  select(lomno1,ses,sesdate,StudyID=X2,SeriesID=X3,SeriesName=X4) |>
+  left_join(imgdata, by=c("lomno1","ses")) |>
+  left_join(mem_dates |> rename(lomno1=LOMNO1),by=c("lomno1")) |>
+  left_join(reltags, by=c("SeriesID")) |>
+  mutate(
+    memtype=case_when(
+      dem-366 < sesdate ~ "Dementia",
+      atc-366 < sesdate ~ "ATC-Dementia",
+      mci-366 < sesdate ~ "MCI",  # Mild Congnitive Impairment
+      mem-366 < sesdate ~ "SMC",  # Subjective Memory Complaint
+      dem-366 < mci ~ "Pre MCI-Dementia",
+      dem-366 < mem ~ "Pre SMC-Dementia",
+      is.na(dem) & !is.na(mci) ~ "Pre MCI",
+      is.na(dem) & !is.na(mem) ~ "Pre SMC",
+      !is.na(dem) ~ "Pre Dementia",
+      is.na(dem) & is.na(mem) & is.na(atc) ~ "None",
+      is.na(dem) & is.na(mem) & !is.na(atc) ~ "Pre ATC-Dementia"
+    ),
+    img_memtype=as.factor(memtype),
+    age=floor(lubridate::interval(spvm,sesdate)/lubridate::dyears(1)),
+    Age=lubridate::interval(spvm,sesdate)/lubridate::dyears(1),
+    mt=factor(case_when(
+      memtype %in% c("Dementia","ATC-Dementia") ~ "Dementia",
+      grepl("^Pre|^None",memtype) ~ "None",   # None incl pre
+      TRUE ~ memtype
+    ), levels=c("Dementia","MCI","SMC","None")),
+    ORIGPROT=case_when(
+      MF %in% c("GE","Toshiba") ~ "Other",
+      MF %in% c("Philips") ~ "Philips",
+      TRUE ~ paste0(MF,SN)
+      ),
+    FS=case_when(
+      MagStre==3 ~ "3Tesla",
+      TRUE ~ "1.5Tesla"
+    )
+  )
+
+sessions |> count(MF,SN)
+sessions |> filter(quality_percent>68) |> count(MF,SN)
+sessions |> count(FS)
+
+memdist <- sessions |>
+  filter(quality_percent>10) |>
+  count(age,mt) |>
+  tidyr::pivot_wider(
+    id_cols=age,
+    names_from="mt",
+    values_from="n",
+    values_fill = 0
+  ) |>
+  select(age,2,3,5,4)
+
+#openxlsx::write.xlsx(memdist,file="memagedist.xlsx")
+
+agedist <- sessions |>
+  count(age)
+
+
+library(ggplot2)
+ls <- sessions |>
+  filter(quality_percent>68) |>
+  tidyr::pivot_longer(
+    cols=quality_percent:ventricle
+  )
+
+
+ls |>
+  ggplot(
+    aes(x=name,y=value)
+  ) +
+  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
+  facet_wrap(~name,scale="free") +
+  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4)
+  
+  
+adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ADNI_CAT12_ostprematched_summary_measures_v2.xlsx")) |>
+  mutate(
+    img_memtype=factor(case_when(
+      DX_bl %in% c("AD") ~ "Dementia",
+      DX_bl %in% c("EMCI","LMCI") ~ "MCI",
+      DX_bl %in% c("SMC") ~ "SMC",
+      TRUE ~ "None"
+    ), labels=c("Dementia", "MCI", "SMC", "None") ),
+    mt=factor(case_when(
+      DX_bl %in% c("AD") ~ "Dementia - ADNI",
+      DX_bl %in% c("EMCI","LMCI") ~ "MCI - ADNI",
+      DX_bl %in% c("SMC") ~ "SMC - ADNI",
+      TRUE ~ "None - ADNI"
+    ),labels=c("Dementia - ADNI", "MCI - ADNI", "SMC -ADNI", "None - ADNI")),
+    MF=case_when(
+      MANUFACTURER==1 ~ "Siemens",
+      MANUFACTURER==2 ~ "Philips",
+      MANUFACTURER==3 ~ "GE",
+    ),
+    FS=case_when(
+      grepl("^3",FLDSTRENG) ~ "3Tesla",
+      TRUE ~ "1.5Tesla"
+    )
+  ) |>
+  rename(adni_subj=subj)
+  
+  
+  
+library(ggplot2)
+ls2 <- adni |>
+  filter(quality_percent>68) |>
+  tidyr::pivot_longer(
+    cols=quality_percent:ventricle
+  ) 
+
+ls2 |>
+  ggplot(
+    aes(x=name,y=value)
+  ) +
+  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
+  facet_wrap(~name,scale="free") +
+  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4)
+
+
+  
+yhd <- adni |>
+  bind_rows(sessions) |>
+  filter(quality_percent>68)
+
+yhd |> count(MF,FS)
+
+library(ggplot2)
+
+yhd |> 
+  ggplot(
+    aes(x=quality_percent, fill=MF)
+  ) +
+  geom_density(alpha=0.6)
+
+yhd |> 
+  ggplot(
+    aes(x=quality_percent, fill=FS)
+  ) +
+  geom_density(alpha=0.6)
+
+
+yls <- yhd |>
+  tidyr::pivot_longer(
+    cols=quality_percent:ventricle
+  )
+
+yls |>
+  ggplot(
+    aes(x=name,y=value)
+  ) +
+  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
+  facet_wrap(~name,scale="free")
+
+
+
+yhd_ana <- yhd |>
+  mutate(
+    subj=case_when(
+      is.na(subj) ~ sprintf("ADNI-%05d",adni_subj),
+      TRUE ~ sub("sub","OSTPRE",subj)
+    ),
+    gr=factor(case_when(
+      grepl("^ADNI",subj) ~ "ADNI",
+      TRUE ~ "OSTPRE"
+    )),
+    mtyp=case_when(
+      gr=="OSTPRE" ~ mt,
+      TRUE ~ img_memtype
+    ),
+    mpf=factor(case_when(
+      grepl("^Dementia",mtyp) ~ "3-AD",
+      grepl("^MCI",mtyp) ~ "2-MCI",
+      grepl("^SMC",mtyp) ~ "1-SMC",
+      grepl("^None",mtyp) ~ "0-None"
+    )),
+    age=Age-75
+  ) |>
+  select(gr,subj,session,Age,age,mpf,MF,FS,TIV:ventricle)
+
+md <- yhd_ana |>
+  select(gr,subj,Age,age,mpf,MF,FS,TIV,meas=hippocampus) |>
+  filter(!is.na(meas) & !is.na(Age))
+
+md |> count(gr,mpf)
+
+mdo <- md |>
+  filter(gr=="OSTPRE")
+
+mda <- md |>
+  filter(gr=="ADNI")
+
+
+m1o <- nlme::lme(scale(meas) ~ Age + scale(TIV) + mpf + MF + FS, random= ~ 1 | subj, data=mdo)
+summary(m1o)
+
+m1a <- nlme::lme(scale(meas) ~ Age + scale(TIV) + mpf + MF + FS, random= ~ 1 | subj, data=mda)
+summary(m1a)
+
+
+#m1 <- lm(scale(meas) ~ Age + gr + scale(TIV) + mpf + MF + FS, data=md)
+#m1 <- lme4::lmer(scale(meas) ~ Age + gr + scale(TIV) + mpf + MF + FS + (1 | subj), data=md)
+m1 <- nlme::lme(scale(meas) ~ age + scale(TIV) + gr + gr:mpf + MF + FS, random= ~ 1 | subj, data=md)
+summary(m1)
+co <- coef(summary(m1))
+
+K = diag(14)
+rownames(K) <- rownames(co)
+summary(multcomp::glht(m1, linfct=K))
+confint(multcomp::glht(m1, linfct=K))
+
+
+
+
+
+
