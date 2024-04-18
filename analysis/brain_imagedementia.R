@@ -194,10 +194,10 @@ yls |>
 
 yhd_ana <- yhd |>
   mutate(
-    subj=case_when(
+    subj=factor(case_when(
       is.na(subj) ~ sprintf("ADNI-%05d",adni_subj),
       TRUE ~ sub("sub","OSTPRE",subj)
-    ),
+    )),
     gr=factor(case_when(
       grepl("^ADNI",subj) ~ "ADNI",
       TRUE ~ "OSTPRE"
@@ -211,44 +211,53 @@ yhd_ana <- yhd |>
       grepl("^MCI",mtyp) ~ "2-MCI",
       grepl("^SMC",mtyp) ~ "1-SMC",
       grepl("^None",mtyp) ~ "0-None"
-    )),
-    age=Age-75
+    ), labels=c("None","SMC","MCI","AD")),
+    cage=Age-75,
+    MF=factor(MF),
+    FS=factor(FS)
   ) |>
-  select(gr,subj,session,Age,age,mpf,MF,FS,TIV:ventricle)
+  select(gr,subj,session,Age,cage,mpf,MF,FS,TIV:ventricle)
 
 md <- yhd_ana |>
-  select(gr,subj,Age,age,mpf,MF,FS,TIV,meas=hippocampus) |>
-  filter(!is.na(meas) & !is.na(Age))
+  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
+  filter(!is.na(meas) & !is.na(Age)) |>
+  mutate(
+    smeas=scale(meas),
+    nmeas=meas-mean(meas),
+    sTIV=scale(TIV)
+    )
 
 md |> count(gr,mpf)
 
-mdo <- md |>
-  filter(gr=="OSTPRE")
 
-mda <- md |>
-  filter(gr=="ADNI")
+m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, data=md)
+# m1 <- nlme::lme(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, random= ~ 1 | subj, data=md)
 
 
-m1o <- nlme::lme(scale(meas) ~ Age + scale(TIV) + mpf + MF + FS, random= ~ 1 | subj, data=mdo)
-summary(m1o)
+mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+# mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+plot(mdp1)
 
-m1a <- nlme::lme(scale(meas) ~ Age + scale(TIV) + mpf + MF + FS, random= ~ 1 | subj, data=mda)
-summary(m1a)
+mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3:3]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+plot(mdp2)
 
+mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+plot(mdp3)
 
-#m1 <- lm(scale(meas) ~ Age + gr + scale(TIV) + mpf + MF + FS, data=md)
-#m1 <- lme4::lmer(scale(meas) ~ Age + gr + scale(TIV) + mpf + MF + FS + (1 | subj), data=md)
-m1 <- nlme::lme(scale(meas) ~ age + scale(TIV) + gr + gr:mpf + MF + FS, random= ~ 1 | subj, data=md)
-summary(m1)
-co <- coef(summary(m1))
+mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+plot(mdp)
 
-K = diag(14)
-rownames(K) <- rownames(co)
-summary(multcomp::glht(m1, linfct=K))
-confint(multcomp::glht(m1, linfct=K))
+tdp <- ggeffects::test_predictions(mdp)
+tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
 
-
-
-
-
+dd_tpd <- ggeffects::test_predictions(
+  mdp, 
+  test=c(
+    "(b1 - b4) = (b5 - b8)",   # None vs AD difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)"    # MCI vs AD difference between ADNI and OSTPRE
+    )
+  )
+dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
 
