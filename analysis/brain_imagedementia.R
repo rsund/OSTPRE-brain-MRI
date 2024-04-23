@@ -6,6 +6,7 @@ library(dplyr)
 qs::qload(file=file.path(bids,"clinical/mem_dates.qs"))
 qs::qload(file=file.path(bids,"nifti/tags.qs"))
 
+# Annetaan tageille lyhenteet
 reltags <- tags |>
   mutate(
     StudyID=as.character(StudyInstanceUID),
@@ -28,7 +29,7 @@ imgdata <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/
     lomno1=as.numeric(gsub("sub-","",subj)),
     ses=as.numeric(gsub("ses-","",session))
   ) |>
-  anti_join(readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx")), by=c("subj","session"))
+  anti_join(readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx")), by=c("subj","session")) # Poistetaan poikkeavat kuvat (todettu myös manuaalisesti kelvottomiksi analyysiin)
 
 sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_names=FALSE) |>
   mutate(
@@ -42,9 +43,9 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
   left_join(mem_dates |> rename(lomno1=LOMNO1),by=c("lomno1")) |>
   left_join(reltags, by=c("SeriesID")) |>
   mutate(
-    memtype=case_when(
+    memtype=case_when( # memtypen avulla ryhmittely
       dem-366 < sesdate ~ "Dementia",
-      atc-366 < sesdate ~ "ATC-Dementia",
+      atc-366 < sesdate ~ "ATC-Dementia", 
       mci-366 < sesdate ~ "MCI",  # Mild Congnitive Impairment
       mem-366 < sesdate ~ "SMC",  # Subjective Memory Complaint
       dem-366 < mci ~ "Pre MCI-Dementia",
@@ -75,7 +76,7 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
   )
 
 sessions |> count(MF,SN)
-sessions |> filter(quality_percent>68) |> count(MF,SN)
+sessions |> filter(quality_percent>68) |> count(MF,SN) # Vain yli 68 laatuiset valitaan
 sessions |> count(FS)
 
 memdist <- sessions |>
@@ -110,6 +111,8 @@ ls |>
   geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
   facet_wrap(~name,scale="free") +
   stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4)
+  # Halutaanko ADNI:lle esim. punaisen sävyt ja OSTPRE:lle sinisen?
+  # scale_fill_manual(values=c("#DC143C", "#8B0000", "#FF0000", "#FA8072" ,"#00008B", "#0000CD" "#000080", "#4169E1"))
   
   
 adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ADNI_CAT12_ostprematched_summary_measures_v2.xlsx")) |>
