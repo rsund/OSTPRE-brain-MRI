@@ -187,7 +187,7 @@ yls |>
   ggplot(
     aes(x=name,y=value)
   ) +
-  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
+  geom_violin(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
   facet_wrap(~name,scale="free")
 
 
@@ -207,11 +207,11 @@ yhd_ana <- yhd |>
       TRUE ~ img_memtype
     ),
     mpf=factor(case_when(
-      grepl("^Dementia",mtyp) ~ "3-AD",
+      grepl("^Dementia",mtyp) ~ "3-Dementia",
       grepl("^MCI",mtyp) ~ "2-MCI",
       grepl("^SMC",mtyp) ~ "1-SMC",
       grepl("^None",mtyp) ~ "0-None"
-    ), labels=c("None","SMC","MCI","AD")),
+    ), labels=c("None","SMC","MCI","Dementia")),
     cage=Age-75,
     MF=factor(MF),
     FS=factor(FS)
@@ -220,6 +220,11 @@ yhd_ana <- yhd |>
 
 md <- yhd_ana |>
   select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
   filter(!is.na(meas) & !is.na(Age)) |>
   mutate(
     smeas=scale(meas),
@@ -253,10 +258,10 @@ tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), 
 dd_tpd <- ggeffects::test_predictions(
   mdp, 
   test=c(
-    "(b1 - b4) = (b5 - b8)",   # None vs AD difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
     "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
     "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
-    "(b3 - b4) = (b7 - b8)"    # MCI vs AD difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
     )
   )
 dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
