@@ -6,6 +6,21 @@ library(dplyr)
 qs::qload(file=file.path(bids,"clinical/mem_dates.qs"))
 qs::qload(file=file.path(bids,"nifti/tags.qs"))
 
+graph_titles <- list(
+  'average_thickness'="Average thickness",
+  'entorhinal_thickness'="Entorhinal thickness",
+  'GM_volume'="GM volume",
+  'hippocampus'="Hippocampus",
+  'Jack_signature_CT'="Jack Signature CT",
+  'quality_IQR'="Quality IQR",
+  'TIV'="TIV",
+  'ventricle'="Ventricle"
+)
+
+set_labels <- function(variable,value){
+  return(graph_titles[value])
+}
+
 # Annetaan tageille lyhenteet
 reltags <- tags |>
   mutate(
@@ -106,14 +121,12 @@ ls <- sessions |>
 
 ls |>
   ggplot(
-    aes(x=name,y=value)
+    aes(x='',y=value)
   ) +
   geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free") +
-  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4)
-  # Halutaanko ADNI:lle esim. punaisen sävyt ja OSTPRE:lle sinisen?
-  # scale_fill_manual(values=c("#DC143C", "#8B0000", "#FF0000", "#FA8072" ,"#00008B", "#0000CD" "#000080", "#4169E1"))
-  
+  facet_wrap(~name,scale="free", labeller=set_labels) +
+  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
+  labs(x='', y='')
   
 adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ADNI_CAT12_ostprematched_summary_measures_v2.xlsx")) |>
   mutate(
@@ -152,11 +165,12 @@ ls2 <- adni |>
 
 ls2 |>
   ggplot(
-    aes(x=name,y=value)
+    aes(x='',y=value)
   ) +
   geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free") +
-  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4)
+  facet_wrap(~name,scale="free", labeller=set_labels) +
+  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
+  labs(x='', y='')
 
 
   
@@ -188,10 +202,11 @@ yls <- yhd |>
 
 yls |>
   ggplot(
-    aes(x=name,y=value)
+    aes(x='',y=value)
   ) +
   geom_violin(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free")
+  facet_wrap(~name,scale="free", labeller=set_labels) +
+  labs(x='', y='')
 
 
 
