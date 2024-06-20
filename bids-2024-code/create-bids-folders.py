@@ -57,7 +57,7 @@ def create_folders(file_name):
       end = '.nii.gz'
       old_file_name = file_name[file_name.find(start)+len(start):file_name.rfind(end)]
       try: 
-          top_folder = 'bids-new-test-2'
+          top_folder = 'bids-new'
           path_to_create = os.path.join(top_folder, sub, session, 'anat') 
 
           os.makedirs(path_to_create)   
@@ -102,4 +102,4 @@ def create_folders(file_name):
   print('Done')
 
 file_name = 'uudet-uniikit'
-create_folders(file_name)
+#create_folders(file_name)

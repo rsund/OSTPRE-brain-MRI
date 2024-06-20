@@ -29,6 +29,7 @@ def get_interesting_rows(file_name):
   # Dimensioiden perusteella voidaan päätellä onko kuva kokonainen
   columns_reduced["MeaningfulDimension"] = columns_reduced["ConvertDimensions"].str.split('x', expand=True)[2].astype('int')
 
+  # 256x256x155x1
   file_size_describe = interesting_rows_reduced[["FileSize"]].describe()
   convertDimensions_describe = columns_reduced[["MeaningfulDimension"]].describe()
 
