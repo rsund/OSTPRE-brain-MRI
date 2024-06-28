@@ -21,6 +21,10 @@ set_labels <- function(variable,value){
   return(graph_titles[value])
 }
 
+set_colors <- function(variable,value){
+  return(group_colors[value])
+}
+
 # Annetaan tageille lyhenteet
 reltags <- tags |>
   mutate(
@@ -68,7 +72,7 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
       is.na(dem) & !is.na(mci) ~ "Pre MCI",
       is.na(dem) & !is.na(mem) ~ "Pre SMC",
       !is.na(dem) ~ "Pre Dementia",
-      is.na(dem) & is.na(mem) & is.na(atc) ~ "None",
+      is.na(dem) & is.na(mem) & is.na(atc) ~ "No memory concerns",
       is.na(dem) & is.na(mem) & !is.na(atc) ~ "Pre ATC-Dementia"
     ),
     img_memtype=as.factor(memtype),
@@ -76,9 +80,9 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
     Age=lubridate::interval(spvm,sesdate)/lubridate::dyears(1),
     mt=factor(case_when(
       memtype %in% c("Dementia","ATC-Dementia") ~ "Dementia",
-      grepl("^Pre|^None",memtype) ~ "None",   # None incl pre
+      grepl("^Pre|^No memory concerns", memtype) ~ "No memory concerns",   # None incl pre
       TRUE ~ memtype
-    ), levels=c("Dementia","MCI","SMC","None")),
+    ), levels=c("Dementia","MCI","SMC","No memory concerns")),
     ORIGPROT=case_when(
       MF %in% c("GE","Toshiba") ~ "Other",
       MF %in% c("Philips") ~ "Philips",
@@ -134,14 +138,14 @@ adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/AD
       DX_bl %in% c("AD") ~ "Dementia",
       DX_bl %in% c("EMCI","LMCI") ~ "MCI",
       DX_bl %in% c("SMC") ~ "SMC",
-      TRUE ~ "None"
-    ), labels=c("Dementia", "MCI", "SMC", "None") ),
+      TRUE ~ "No memory concerns"
+    ), labels=c("Dementia", "MCI", "SMC", "No memory concerns") ),
     mt=factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia - ADNI",
       DX_bl %in% c("EMCI","LMCI") ~ "MCI - ADNI",
       DX_bl %in% c("SMC") ~ "SMC - ADNI",
-      TRUE ~ "None - ADNI"
-    ),labels=c("Dementia - ADNI", "MCI - ADNI", "SMC -ADNI", "None - ADNI")),
+      TRUE ~ "No memory concerns - ADNI"
+    ),labels=c("Dementia - ADNI", "MCI - ADNI", "SMC -ADNI", "No memory concerns - ADNI")),
     MF=case_when(
       MANUFACTURER==1 ~ "Siemens",
       MANUFACTURER==2 ~ "Philips",
@@ -186,28 +190,51 @@ yhd |>
   ggplot(
     aes(x=quality_percent, fill=MF)
   ) +
-  geom_density(alpha=0.6)
+  labs(x='Quality-%', y='') +
+  geom_density(alpha=0.6) +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="top") 
+ggsave("manuf-quality.svg")
 
 yhd |> 
   ggplot(
     aes(x=quality_percent, fill=FS)
   ) +
-  geom_density(alpha=0.6)
-
+  geom_density(alpha=0.6) +
+  labs(x='Quality-%', y='') +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="top") 
+ggsave("field-str-quality.svg")
 
 yls <- yhd |>
   tidyr::pivot_longer(
     cols=quality_percent:ventricle
   )
 
-yls |>
+yls_subset <- subset(yls, name %in% c('hippocampus', 'ventricle', 'GM_volume'))
+
+yls_subset |>
   ggplot(
-    aes(x='',y=value)
+    aes(x='', y=value)
   ) +
   geom_violin(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free", labeller=set_labels) +
-  labs(x='', y='')
-
+  facet_wrap(~name, scale="free", labeller=set_labels) +
+  labs(x='', y='volume ml') +
+  scale_fill_manual(
+    name = "",
+    values = c(
+      "Dementia"="#CD5C5C",
+      "MCI"="#FFA07A",
+      "SMC"="#87CEFA",
+      "No memory concerns"="#98FB98",
+      "Dementia - ADNI"="#8B0000",
+      "MCI - ADNI"="#FF8C00",
+      "SMC -ADNI"="#4682B4",
+      "No memory concerns - ADNI"="#228B22"
+      )
+  ) +
+  theme(legend.position="top")
+#ggsave("violin.svg")
 
 
 yhd_ana <- yhd |>
@@ -228,8 +255,8 @@ yhd_ana <- yhd |>
       grepl("^Dementia",mtyp) ~ "3-Dementia",
       grepl("^MCI",mtyp) ~ "2-MCI",
       grepl("^SMC",mtyp) ~ "1-SMC",
-      grepl("^None",mtyp) ~ "0-None"
-    ), labels=c("None","SMC","MCI","Dementia")),
+      grepl("^No memory concerns",mtyp) ~ "0-No memory concerns"
+    ), labels=c("No memory concerns","SMC","MCI","Dementia")),
     cage=Age-75,
     MF=factor(MF),
     FS=factor(FS)
@@ -259,16 +286,38 @@ m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, data=m
 
 mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
 # mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp1)
+plot(mdp1) + 
+  theme(plot.title = element_blank())
 
 mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3:3]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp2)
+plot(mdp2) + 
+  theme(plot.title = element_blank())
 
 mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp3)
+plot(mdp3) + 
+  theme(plot.title = element_blank(), legend.title=element_blank()) +
+  theme(legend.position="top") +
+  labs(x='age', y='standardized volume measure') 
+ggsave("hippocampus-compare1.svg")
+
+# Värejä ei saa muutettua tällä:
+# scale_fill_manual(
+#   name = "",
+#   values = c(
+#     "Dementia"="#d62728",
+#     "MCI"="#ff7f0e",
+#     "SMC"="#1f77b4",
+#     "No memory concerns"="#2ca02c"
+#   )
+# ) +
 
 mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp)
+plot(mdp) +
+  labs(x='cognitive status', y='standardized volume measure')  +
+  theme(legend.title=element_blank())  +
+  theme(legend.position="top") +
+  theme(plot.title = element_blank())
+#ggsave("hippocampus-compare2.svg")
 
 tdp <- ggeffects::test_predictions(mdp)
 tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
