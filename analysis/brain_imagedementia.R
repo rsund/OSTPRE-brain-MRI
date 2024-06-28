@@ -176,7 +176,7 @@ ls2 |>
   stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
   labs(x='', y='')
 
-
+  
   
 yhd <- adni |>
   bind_rows(sessions) |>
