@@ -21,11 +21,13 @@ set_labels <- function(variable,value){
   return(graph_titles[value])
 }
 
-set_colors <- function(variable,value){
-  return(group_colors[value])
-}
 
-# Annetaan tageille lyhenteet
+tags |> distinct(lomno1) |> count()   # Henkilöitä NIfTI konversion jälkeen
+tags |> distinct(lomno1,ses) |> count()   # Sessioita NIfTI konversion jälkeen
+tags |> count() # Erillisiä kuvia/"sekvenssejä"
+
+
+# Irrotetaan metadatoista analyyseihin tarvittavat tagit
 reltags <- tags |>
   mutate(
     StudyID=as.character(StudyInstanceUID),
@@ -38,17 +40,33 @@ reltags <- tags |>
   distinct() |>
   mutate(
     SN=case_when(
-      SN=="NULL" ~ "25345",
+      SN=="NULL" ~ "25345",     # Manuaalinen korjaus eli jos SerialNumber (jota ei kylläkään käytetä varsinaisissa analyyseissa) puuttuu, niin näyttävät olevan hyvin samanlaisia kuin tämän laitteen (muut) tulokset
       TRUE ~ SN
     )
   )
 
-imgdata <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_CAT12_summary_measures.xlsx")) |>
+imgdata_in <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_CAT12_summary_measures.xlsx")) |>
   mutate(
     lomno1=as.numeric(gsub("sub-","",subj)),
     ses=as.numeric(gsub("ses-","",session))
-  ) |>
-  anti_join(readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx")), by=c("subj","session")) # Poistetaan poikkeavat kuvat (todettu myös manuaalisesti kelvottomiksi analyysiin)
+  )
+
+outliers <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx"))
+
+outliers |> count()
+outliers |> distinct(subj) |> count()
+
+outlierdata <- imgdata_in |>  
+  inner_join(outliers, by=c("subj","session")) |>
+  mutate(qual=case_when(
+    quality_percent>68 ~ ">68",
+    TRUE ~ "<=68"
+  ))
+
+outlierdata |> count(qual)
+
+imgdata <- imgdata_in |>  
+  anti_join(outliers, by=c("subj","session")) # Poistetaan poikkeavat kuvat (todettu myös manuaalisesti kelvottomiksi analyysiin)
 
 sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_names=FALSE) |>
   mutate(
@@ -93,6 +111,16 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
       TRUE ~ "1.5Tesla"
     )
   )
+
+sessions |> count()
+sessions |> distinct(lomno1.x) |> count()
+
+imgdata |> count()
+imgdata |> distinct(lomno1) |> count()
+
+imgdata_in |> count()
+imgdata_in |> distinct(lomno1) |> count()
+
 
 sessions |> count(MF,SN)
 sessions |> filter(quality_percent>68) |> count(MF,SN) # Vain yli 68 laatuiset valitaan
@@ -262,6 +290,38 @@ yhd_ana <- yhd |>
     FS=factor(FS)
   ) |>
   select(gr,subj,session,Age,cage,mpf,MF,FS,TIV:ventricle)
+
+
+yhd_ana |> count(gr)
+yhd_ana |> filter(gr=="OSTPRE") |> distinct(subj) |> count()
+yhd |> filter(!is.na(subj)) |> count()
+yhd |> filter(!is.na(subj)) |> distinct(subj) |> count()
+
+# Table 1 tietoja
+yhd_ana |>
+  group_by(gr) |>
+  summarise(
+    n=n(),
+    nsub=n_distinct(subj),
+    age=mean(Age,na.rm=TRUE),
+    agesd=sd(Age,na.rm=TRUE),
+  )
+
+yhd_ana |>
+  count(gr,mpf) |>
+  group_by(gr) |>
+  mutate(np=n/sum(n)*100)
+
+yhd_ana |>
+  count(gr,FS) |>
+  group_by(gr) |>
+  mutate(np=n/sum(n)*100)
+
+yhd_ana |>
+  count(gr,MF) |>
+  group_by(gr) |>
+  mutate(np=n/sum(n)*100)
+
 
 md <- yhd_ana |>
   select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
