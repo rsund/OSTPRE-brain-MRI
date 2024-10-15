@@ -161,19 +161,20 @@ ls |>
   labs(x='', y='')
   
 adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ADNI_CAT12_ostprematched_summary_measures_v2.xlsx")) |>
+  filter(DX_bl != "NA") |>
   mutate(
     img_memtype=factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia",
       DX_bl %in% c("EMCI","LMCI") ~ "MCI",
       DX_bl %in% c("SMC") ~ "SMC",
       TRUE ~ "None"
-    ), labels=c("Dementia", "MCI", "SMC", "None") ),
+    )),
     mt=factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia - ADNI",
       DX_bl %in% c("EMCI","LMCI") ~ "MCI - ADNI",
       DX_bl %in% c("SMC") ~ "SMC - ADNI",
       TRUE ~ "None - ADNI"
-    ),labels=c("Dementia - ADNI", "MCI - ADNI", "SMC -ADNI", "None - ADNI")),
+    )),
     MF=case_when(
       MANUFACTURER==1 ~ "Siemens",
       MANUFACTURER==2 ~ "Philips",
@@ -301,9 +302,9 @@ yhd_ana |>
 
 
 md <- yhd_ana |>
-  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
+  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
