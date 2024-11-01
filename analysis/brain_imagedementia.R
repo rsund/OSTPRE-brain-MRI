@@ -195,6 +195,13 @@ yhd <- adni |>
   bind_rows(sessions) |>
   filter(quality_percent>68)
 
+
+
+
+qs::qload(file="mri_20241101.qs")
+
+
+
 yhd |> count(MF,FS)
 
 library(ggplot2)
@@ -422,16 +429,25 @@ yhd_ana |>
   mutate(np=n/sum(n)*100)
 
 
+
+melist <- c("hippocampus","ventricle","GM_volume","average_thickness","Jack_signature_CT","entorhinal_thickness")
+
+mdpl <- list()
+
+i <- 1
+
+me <- melist[i]
 md <- yhd_ana |>
+   select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
-  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
+#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
 #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
   filter(!is.na(meas) & !is.na(Age)) |>
   mutate(
-    smeas=scale(meas),
+    asmeas=scale(Age),
     nmeas=meas-mean(meas),
     sTIV=scale(TIV)
     )
@@ -493,7 +509,7 @@ mdp_panel <- mdp_1 |>
     ), levels = c("NMC","SMC","MCI","Dementia"))
   ) 
   
-
+qs::qsavem(yhd,mdp_panel,file="mri_20241101.qs")
 
 #define colours for dots and bars
 dotCOLS = c("#a6d8f0","#f9b282")
