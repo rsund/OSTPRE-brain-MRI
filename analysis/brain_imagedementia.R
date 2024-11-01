@@ -6,22 +6,6 @@ library(dplyr)
 qs::qload(file=file.path(bids,"clinical/mem_dates.qs"))
 qs::qload(file=file.path(bids,"nifti/tags.qs"))
 
-graph_titles <- list(
-  'average_thickness'="Average thickness",
-  'entorhinal_thickness'="Entorhinal thickness",
-  'GM_volume'="GM volume",
-  'hippocampus'="Hippocampus",
-  'Jack_signature_CT'="Jack Signature CT",
-  'quality_IQR'="Quality IQR",
-  'TIV'="TIV",
-  'ventricle'="Ventricle"
-)
-
-set_labels <- function(variable,value){
-  return(graph_titles[value])
-}
-
-
 tags |> distinct(lomno1) |> count()   # Henkilöitä NIfTI konversion jälkeen
 tags |> distinct(lomno1,ses) |> count()   # Sessioita NIfTI konversion jälkeen
 tags |> count() # Erillisiä kuvia/"sekvenssejä"
@@ -168,13 +152,13 @@ adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/AD
       DX_bl %in% c("EMCI","LMCI") ~ "MCI",
       DX_bl %in% c("SMC") ~ "SMC",
       TRUE ~ "No memory concerns"
-    )),
+    ),levels = c("Dementia","MCI","SMC","No memory concerns")),
     mt=factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia - ADNI",
       DX_bl %in% c("EMCI","LMCI") ~ "MCI - ADNI",
       DX_bl %in% c("SMC") ~ "SMC - ADNI",
       TRUE ~ "No memory concerns - ADNI"
-    )),
+    ),levels = c("Dementia - ADNI","MCI - ADNI","SMC - ADNI","No memory concerns - ADNI")),
     MF=case_when(
       MANUFACTURER==1 ~ "Siemens",
       MANUFACTURER==2 ~ "Philips",
@@ -223,7 +207,7 @@ yhd |>
   geom_density(alpha=0.6) +
   theme(legend.title=element_blank()) +
   theme(legend.position="top") 
-ggsave("manuf-quality.svg")
+#ggsave("manuf-quality.svg")
 
 yhd |> 
   ggplot(
@@ -233,7 +217,7 @@ yhd |>
   labs(x='Quality-%', y='') +
   theme(legend.title=element_blank()) +
   theme(legend.position="top") 
-ggsave("field-str-quality.svg")
+#ggsave("field-str-quality.svg")
 
 yls <- yhd |>
   tidyr::pivot_longer(
@@ -242,13 +226,90 @@ yls <- yhd |>
 
 yls_subset <- subset(yls, name %in% c('hippocampus', 'ventricle', 'GM_volume'))
 
-yls_subset |>
+graph_titles <- c(
+  average_thickness="Average thickness",
+  entorhinal_thickness="Entorhinal thickness",
+  GM_volume="Gray Matter",
+  hippocampus="Hippocampus",
+  Jack_signature_CT="Jack Signature CT",
+  quality_IQR="Quality IQR",
+  TIV="TIV",
+  ventricle="Ventricle"
+)
+
+library(grid)
+# Create a text
+grob_adni <- grobTree(textGrob("ADNI", x=0.17,  y=0.98, hjust=0,gp=gpar(col="#525252", fontsize=10, fontface="italic")))
+grob_ostpre <- grobTree(textGrob("OSTPRE", x=0.6,  y=0.98, hjust=0,gp=gpar(col="#525252", fontsize=10, fontface="italic")))
+# Plot
+
+
+xpla <- c(0,30,55,80) # c(0,40,68,100)
+
+polys <- tribble(
+  ~group, ~x, ~y,
+  "Dementia", xpla[1]+0, 10, 
+  "Dementia", xpla[1]+10, 0, 
+  "Dementia", xpla[1]+10, 10, 
+  "Dementia - ADNI", xpla[1]+0, 0, 
+  "Dementia - ADNI", xpla[1]+10, 0, 
+  "Dementia - ADNI", xpla[1]+0, 10, 
+  "MCI", xpla[2]+0, 10, 
+  "MCI", xpla[2]+10, 0, 
+  "MCI", xpla[2]+10, 10, 
+  "MCI - ADNI", xpla[2]+0, 0, 
+  "MCI - ADNI", xpla[2]+10, 0, 
+  "MCI - ADNI", xpla[2]+0, 10, 
+  "SMC", xpla[3]+0, 10, 
+  "SMC", xpla[3]+10, 0, 
+  "SMC", xpla[3]+10, 10, 
+  "SMC - ADNI", xpla[3]+0, 0, 
+  "SMC - ADNI", xpla[3]+10, 0, 
+  "SMC - ADNI", xpla[3]+0, 10, 
+  "No memory concerns", xpla[4]+0, 10, 
+  "No memory concerns", xpla[4]+10, 0, 
+  "No memory concerns", xpla[4]+10, 10, 
+  "No memory concerns - ADNI", xpla[4]+0, 0, 
+  "No memory concerns - ADNI", xpla[4]+10, 0, 
+  "No memory concerns - ADNI", xpla[4]+0, 10, 
+  )
+
+texts <- tribble(
+  ~group, ~x, ~y,
+  "Dementia", xpla[1]+12, 5,
+  "MCI", xpla[2]+12, 5,
+  "SMC", xpla[3]+12, 5,
+  "No memory concerns", xpla[4]+12, 5,
+)
+
+leg <- ggplot(polys, aes(x = x, y = y)) +
+  geom_polygon(aes(fill = group, group = group), show.legend=FALSE) +
+  geom_text(data=texts,aes(label=group, x=x, y=y, hjust="left")) +
+  scale_fill_manual(
+    name = "group",
+    values = c(
+      "Dementia"="#CD5C5C",
+      "MCI"="#FFA07A",
+      "SMC"="#87CEFA",
+      "No memory concerns"="#98FB98",
+      "Dementia - ADNI"="#8B0000",
+      "MCI - ADNI"="#FF8C00",
+      "SMC - ADNI"="#4682B4",
+      "No memory concerns - ADNI"="#228B22"
+    )
+  ) + 
+  theme_void() +
+  expand_limits(x=c(0,140)) #, y=c(0, 200))
+leg
+
+viol <- yls_subset |>
+  select(value,mt,name) |>
   ggplot(
     aes(x='', y=value)
   ) +
-  geom_violin(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name, scale="free", labeller=set_labels) +
-  labs(x='', y='volume ml') +
+  geom_violin(aes(fill=mt),position=position_dodge(.9),show.legend=FALSE) +
+  facet_wrap(~name, scale="free", labeller=labeller(name = graph_titles)) +
+  labs(x='', y='Volume, ml') +
   scale_fill_manual(
     name = "",
     values = c(
@@ -258,12 +319,49 @@ yls_subset |>
       "No memory concerns"="#98FB98",
       "Dementia - ADNI"="#8B0000",
       "MCI - ADNI"="#FF8C00",
-      "SMC -ADNI"="#4682B4",
+      "SMC - ADNI"="#4682B4",
       "No memory concerns - ADNI"="#228B22"
-      )
+      ),
+    breaks=c(
+      "Dementia","MCI","SMC","No memory concerns"
+    )
   ) +
-  theme(legend.position="top")
+  theme(legend.position="top") +
+  theme(
+    panel.grid.major.x = element_line(color = "blue", size = 0.5, linetype = 2),
+    ) +
+  annotation_custom(grob_adni) +
+  annotation_custom(grob_ostpre)
+viol
+
+#fig <- 
+  ggpubr::ggarrange(leg,viol,nrow=2,heights=c(1,18),align="v")
+
+cowplot::ggdraw() +
+  cowplot::draw_plot(leg,x=0.15,y=0.90,width=0.85,height=0.070) +
+  cowplot::draw_plot(viol,x=0,y=0,height=0.9)
 #ggsave("violin.svg")
+
+
+
+
+# yls_subset |>
+#   select(value,mt,name) |>
+#   ggpubr::ggviolin(
+#     x="mt", 
+#     y="value", 
+#     add="boxplot", 
+#     add.params = list(fill = "white"),
+#     fill="mt",
+#     palette=c("#CD5C5C","#FFA07A","#87CEFA","#98FB98","#8B0000","#FF8C00","#4682B4","#228B22"),
+#     breaks=c("Dementia","MCI","SMC","No memory concerns")
+#   ) +
+#   facet_wrap(~name, scale="free", labeller=labeller(name = graph_titles)) +
+#   labs(x='', y='Volume, ml') +
+#   annotation_custom(grob_adni) +
+#   annotation_custom(grob_ostpre)
+
+
 
 
 yhd_ana <- yhd |>
@@ -359,7 +457,7 @@ plot(mdp3) +
   theme(plot.title = element_blank(), legend.title=element_blank()) +
   theme(legend.position="top") +
   labs(x='age', y='standardized volume measure') 
-ggsave("hippocampus-compare1.svg")
+#ggsave("hippocampus-compare1.svg")
 
 # Värejä ei saa muutettua tällä:
 # scale_fill_manual(
@@ -374,11 +472,51 @@ ggsave("hippocampus-compare1.svg")
 
 mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
 plot(mdp) +
-  labs(x='cognitive status', y='standardized volume measure')  +
+  labs(x='Cognitive status', y='standardized volume measure')  +
   theme(legend.title=element_blank())  +
   theme(legend.position="top") +
   theme(plot.title = element_blank())
 #ggsave("hippocampus-compare2.svg")
+
+
+mdp_1 <- as.data.frame(mdp) |> mutate(para="Hippocampus Volume")
+mdp_2 <- as.data.frame(mdp) |> mutate(para="Ventricle Volume")
+mdp_3 <- as.data.frame(mdp) |> mutate(para="Gray Matter Volume")
+
+mdp_panel <- mdp_1 |>
+  bind_rows(mdp_2) |>
+  bind_rows(mdp_3) |>
+  mutate(
+    status=factor(case_when(
+      x == "No memory concerns" ~ "NMC",
+      TRUE ~ x
+    ), levels = c("NMC","SMC","MCI","Dementia"))
+  ) 
+  
+
+
+#define colours for dots and bars
+dotCOLS = c("#a6d8f0","#f9b282")
+barCOLS = c("#008fd5","#de6b35")
+
+
+ggplot(mdp_panel, aes(x=predicted, y=status, xmin=conf.low, xmax=conf.high,col=group,fill=group)) + 
+  coord_flip() +
+  facet_wrap(~para) +
+  #specify position here
+  geom_linerange(linewidth=1,position=position_dodge(width = 0.3)) +
+#  geom_hline(yintercept=1, lty=2) +
+  #specify position here too
+  geom_point(size=3, shape=21, colour="white", stroke = 0.5,position=position_dodge(width = 0.3)) +
+  scale_fill_manual(values=barCOLS)+
+  scale_color_manual(values=dotCOLS)+
+  scale_y_discrete(name="") +
+  scale_x_continuous(name="Standardized measurement", limits = c(-1.02, 0.7)) +
+  theme(legend.position="top",legend.title=element_blank()) 
+#ggsave("pred_panel.svg")  
+
+
+coord_flip() # Kääntää koordinaatit
 
 tdp <- ggeffects::test_predictions(mdp)
 tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
