@@ -403,6 +403,18 @@ yhd_ana |> filter(gr=="OSTPRE") |> distinct(subj) |> count()
 yhd |> filter(!is.na(subj)) |> count()
 yhd |> filter(!is.na(subj)) |> distinct(subj) |> count()
 
+memdist_ana <- yhd_ana |>
+  mutate(age=floor(Age)) |>
+  count(gr,age,mpf) |>
+  tidyr::pivot_wider(
+    id_cols=c(gr,age),
+    names_from="mpf",
+    values_from="n",
+    values_fill = 0
+  )
+
+openxlsx::write.xlsx(memdist_ana,"../memdist_ana.xlsx")
+
 # Table 1 tietoja
 yhd_ana |>
   group_by(gr) |>
@@ -432,72 +444,63 @@ yhd_ana |>
 
 melist <- c("hippocampus","ventricle","GM_volume","average_thickness","Jack_signature_CT","entorhinal_thickness")
 
+#i <- 1
 mdpl <- list()
-
-i <- 1
-
-me <- melist[i]
-md <- yhd_ana |>
-   select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
-#  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
-  filter(!is.na(meas) & !is.na(Age)) |>
-  mutate(
-    asmeas=scale(Age),
-    nmeas=meas-mean(meas),
-    sTIV=scale(TIV)
+for (i in 1:length(melist)) {
+  me <- melist[i]
+  md <- yhd_ana |>
+    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
+    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
+    filter(!is.na(meas) & !is.na(Age)) |>
+    mutate(
+      smeas=scale(meas)[,1],
+      nmeas=meas-mean(meas),
+      sTIV=scale(TIV)[,1]
     )
+  
+  # md |> count(gr,mpf)
+  
+  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, data=md)
+  # m1 <- nlme::lme(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, random= ~ 1 | subj, data=md)
+  
+#paste(as.character(seq(-3,3,by=0.25)),collapse=",")
+  mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  # mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
+  mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  
+  mdpl[[me]] <- list(mdp1=mdp1,mdp2=mdp2,mdp3=mdp3,mdp=mdp)
+}
 
-md |> count(gr,mpf)
-
-
-m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, data=md)
-# m1 <- nlme::lme(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, random= ~ 1 | subj, data=md)
-
-
-mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-# mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp1) + 
-  theme(plot.title = element_blank())
-
-mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3:3]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp2) + 
-  theme(plot.title = element_blank())
-
-mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp3) + 
-  theme(plot.title = element_blank(), legend.title=element_blank()) +
-  theme(legend.position="top") +
-  labs(x='age', y='standardized volume measure') 
-#ggsave("hippocampus-compare1.svg")
-
-# Värejä ei saa muutettua tällä:
-# scale_fill_manual(
-#   name = "",
-#   values = c(
-#     "Dementia"="#d62728",
-#     "MCI"="#ff7f0e",
-#     "SMC"="#1f77b4",
-#     "No memory concerns"="#2ca02c"
-#   )
-# ) +
-
-mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-plot(mdp) +
-  labs(x='Cognitive status', y='standardized volume measure')  +
-  theme(legend.title=element_blank())  +
-  theme(legend.position="top") +
-  theme(plot.title = element_blank())
-#ggsave("hippocampus-compare2.svg")
+# plot(mdp1) + 
+#   theme(plot.title = element_blank())
+# 
+# plot(mdp2) + 
+#   theme(plot.title = element_blank())
+# 
+# plot(mdp3) + 
+#   theme(plot.title = element_blank(), legend.title=element_blank()) +
+#   theme(legend.position="top") +
+#   labs(x='age', y='standardized volume measure') 
+# #ggsave("hippocampus-compare1.svg")
+# 
+# plot(mdp) +
+#   labs(x='Cognitive status', y='standardized volume measure')  +
+#   theme(legend.title=element_blank())  +
+#   theme(legend.position="top") +
+#   theme(plot.title = element_blank())
+# #ggsave("hippocampus-compare2.svg")
 
 
-mdp_1 <- as.data.frame(mdp) |> mutate(para="Hippocampus Volume")
-mdp_2 <- as.data.frame(mdp) |> mutate(para="Ventricle Volume")
-mdp_3 <- as.data.frame(mdp) |> mutate(para="Gray Matter Volume")
+mdp_1 <- as.data.frame(mdpl[["hippocampus"]]$mdp) |> mutate(para="Hippocampus Volume")
+mdp_2 <- as.data.frame(mdpl[["ventricle"]]$mdp) |> mutate(para="Ventricle Volume")
+mdp_3 <- as.data.frame(mdpl[["GM_volume"]]$mdp) |> mutate(para="Gray Matter Volume")
 
 mdp_panel <- mdp_1 |>
   bind_rows(mdp_2) |>
@@ -509,7 +512,7 @@ mdp_panel <- mdp_1 |>
     ), levels = c("NMC","SMC","MCI","Dementia"))
   ) 
   
-qs::qsavem(yhd,mdp_panel,file="mri_20241101.qs")
+qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20241101.qs")
 
 #define colours for dots and bars
 dotCOLS = c("#a6d8f0","#f9b282")
@@ -548,3 +551,27 @@ dd_tpd <- ggeffects::test_predictions(
   )
 dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
 
+mod_age <- NULL |>
+  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp1,gr="Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp1,gr="Ventricle Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp1,gr="Gray Matter Volume"))) |>
+  mutate(para="Age")
+
+mod_tiv <- NULL |>
+  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp2,gr="Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp2,gr="Ventricle Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp2,gr="Gray Matter Volume"))) |>
+  mutate(para="Standardised TIV")
+
+mod_yhd <- mod_age |>
+  bind_rows(mod_tiv)
+
+mod_yhd |>
+  ggplot(aes(x=x,y=predicted,colour=gr)) +
+  facet_wrap(~para,scale="free_x") +
+  geom_line() +
+  geom_ribbon(data=mod_yhd,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
+  theme(legend.position="top",legend.title=element_blank()) +
+  labs(x="",y="Standardized measurement")
+#ggsave("pred_param.svg")
+           
