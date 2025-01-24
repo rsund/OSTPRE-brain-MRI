@@ -140,7 +140,7 @@ ls |>
     aes(x='',y=value)
   ) +
   geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free", labeller=set_labels) +
+  facet_wrap(~name,scales="free") + #, labeller=set_labels) +
   stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
   labs(x='', y='')
   
@@ -169,9 +169,10 @@ adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/AD
       TRUE ~ "1.5Tesla"
     )
   ) |>
-  rename(adni_subj=subj)
+  rename(adni_subj=subj) |>
+  filter(!is.na(Age)) # Remove the participant with missing age
   
-  
+# adni |> filter(is.na(Age))   # There is one ADNI participant with missing age
   
 library(ggplot2)
 ls2 <- adni |>
@@ -185,7 +186,7 @@ ls2 |>
     aes(x='',y=value)
   ) +
   geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scale="free", labeller=set_labels) +
+  facet_wrap(~name,scales="free") + #, labeller=set_labels) +
   stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
   labs(x='', y='')
 
@@ -286,7 +287,7 @@ texts <- tribble(
   "Dementia", xpla[1]+12, 5,
   "MCI", xpla[2]+12, 5,
   "SMC", xpla[3]+12, 5,
-  "No memory concerns", xpla[4]+12, 5,
+  "No memory complaints", xpla[4]+12, 5,
 )
 
 leg <- ggplot(polys, aes(x = x, y = y)) +
@@ -341,8 +342,7 @@ viol <- yls_subset |>
   annotation_custom(grob_ostpre)
 viol
 
-#fig <- 
-  ggpubr::ggarrange(leg,viol,nrow=2,heights=c(1,18),align="v")
+#fig <- ggpubr::ggarrange(leg,viol,nrow=2,heights=c(1,18),align="v")
 
 cowplot::ggdraw() +
   cowplot::draw_plot(leg,x=0.15,y=0.90,width=0.85,height=0.070) +
@@ -390,7 +390,7 @@ yhd_ana <- yhd |>
       grepl("^MCI",mtyp) ~ "2-MCI",
       grepl("^SMC",mtyp) ~ "1-SMC",
       grepl("^No memory concerns",mtyp) ~ "0-No memory concerns"
-    ), labels=c("No memory concerns","SMC","MCI","Dementia")),
+    ), labels=c("No memory complaints","SMC","MCI","Dementia")),
     cage=Age-75,
     MF=factor(MF),
     FS=factor(FS)
@@ -475,7 +475,7 @@ for (i in 1:length(melist)) {
   mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
   mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
   
-  mdpl[[me]] <- list(mdp1=mdp1,mdp2=mdp2,mdp3=mdp3,mdp=mdp)
+  mdpl[[me]] <- list(m1=m1,mdp1=mdp1,mdp2=mdp2,mdp3=mdp3,mdp=mdp)
 }
 
 # plot(mdp1) + 
@@ -507,12 +507,12 @@ mdp_panel <- mdp_1 |>
   bind_rows(mdp_3) |>
   mutate(
     status=factor(case_when(
-      x == "No memory concerns" ~ "NMC",
+      x == "No memory complaints" ~ "NMC",
       TRUE ~ x
     ), levels = c("NMC","SMC","MCI","Dementia"))
   ) 
   
-qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20241101.qs")
+qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20250123.qs")
 
 #define colours for dots and bars
 dotCOLS = c("#a6d8f0","#f9b282")
@@ -535,21 +535,62 @@ ggplot(mdp_panel, aes(x=predicted, y=status, xmin=conf.low, xmax=conf.high,col=g
 #ggsave("pred_panel.svg")  
 
 
-coord_flip() # Kääntää koordinaatit
+#coord_flip() # Kääntää koordinaatit
 
-tdp <- ggeffects::test_predictions(mdp)
-tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
+# tdp <- ggeffects::test_predictions(mdp)
+# tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
+# 
+# dd_tpd <- ggeffects::test_predictions(
+#   mdp, 
+#   test=c(
+#     "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
+#     "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
+#     "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
+#     "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+#     )
+#   )
+# dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
 
-dd_tpd <- ggeffects::test_predictions(
-  mdp, 
+
+m1p <- ggeffects::predict_response(mdpl[["GM_volume"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+ggeffects::test_predictions(m1p)
+ggeffects::test_predictions(
+  m1p, 
   test=c(
-    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
-    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
     "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
     "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
-    )
   )
-dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
+)
+
+m2p <- ggeffects::predict_response(mdpl[["hippocampus"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+ggeffects::test_predictions(m2p)
+ggeffects::test_predictions(
+  m2p, 
+  test=c(
+    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+  )
+)
+
+
+m3p <- ggeffects::predict_response(mdpl[["ventricle"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+ggeffects::test_predictions(m3p)
+ggeffects::test_predictions(
+  m3p, 
+  test=c(
+    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+  )
+)
+
+
+
 
 mod_age <- NULL |>
   bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp1,gr="Hippocampus Volume"))) |>
