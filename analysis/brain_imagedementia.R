@@ -96,6 +96,13 @@ sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_
     )
   )
 
+clin_sessions <- sessions |>
+  select(lomno1=lomno1.x, sesdate, MF, FS, mt, age, Age, subj:ventricle) |>
+  filter(quality_percent>68)
+
+#readr::write_csv(clin_sessions,"P:/risk_scores/data/sessions.csv")
+
+
 sessions |> count()
 sessions |> distinct(lomno1.x) |> count()
 
