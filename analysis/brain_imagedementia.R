@@ -206,7 +206,7 @@ yhd <- adni |>
 
 
 
-qs::qload(file="mri_20241101.qs")
+qs::qload(file="mri_20250123.qs")
 
 
 
@@ -355,7 +355,7 @@ cowplot::ggdraw() +
   cowplot::draw_plot(leg,x=0.15,y=0.90,width=0.85,height=0.070) +
   cowplot::draw_plot(viol,x=0,y=0,height=0.9)
 #ggsave("violin.svg")
-
+#ggsave("Figure 2.pdf", width=7, height=5)
 
 
 
@@ -540,6 +540,7 @@ ggplot(mdp_panel, aes(x=predicted, y=status, xmin=conf.low, xmax=conf.high,col=g
   scale_x_continuous(name="Standardized measurement", limits = c(-1.02, 0.7)) +
   theme(legend.position="top",legend.title=element_blank()) 
 #ggsave("pred_panel.svg")  
+#ggsave("Figure 3.pdf", height=7, width=7)  
 
 
 #coord_flip() # Kääntää koordinaatit
@@ -622,4 +623,5 @@ mod_yhd |>
   theme(legend.position="top",legend.title=element_blank()) +
   labs(x="",y="Standardized measurement")
 #ggsave("pred_param.svg")
+#ggsave("Figure 4.pdf",width=5, height=5)
            
