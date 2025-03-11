@@ -180,6 +180,7 @@ adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/AD
   filter(!is.na(Age)) # Remove the participant with missing age
   
 # adni |> filter(is.na(Age))   # There is one ADNI participant with missing age
+# adni |> filter(quality_percent <= 68) |> count()  # How many scans below the QC threshold
   
 library(ggplot2)
 ls2 <- adni |>
