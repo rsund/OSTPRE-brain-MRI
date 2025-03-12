@@ -520,31 +520,91 @@ mdp_panel <- mdp_1 |>
     ), levels = c("NMC","SMC","MCI","Dementia"))
   ) 
   
-qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20250123.qs")
-
-#define colours for dots and bars
-dotCOLS = c("#a6d8f0","#f9b282")
-barCOLS = c("#008fd5","#de6b35")
+#qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20250123.qs")
 
 
-ggplot(mdp_panel, aes(x=predicted, y=status, xmin=conf.low, xmax=conf.high,col=group,fill=group)) + 
-  coord_flip() +
-  facet_wrap(~para) +
-  #specify position here
-  geom_linerange(linewidth=1,position=position_dodge(width = 0.3)) +
-#  geom_hline(yintercept=1, lty=2) +
-  #specify position here too
-  geom_point(size=3, shape=21, colour="white", stroke = 0.5,position=position_dodge(width = 0.3)) +
-  scale_fill_manual(values=barCOLS)+
-  scale_color_manual(values=dotCOLS)+
-  scale_y_discrete(name="") +
-  scale_x_continuous(name="Standardized measurement", limits = c(-1.02, 0.7)) +
-  theme(legend.position="top",legend.title=element_blank()) 
-#ggsave("pred_panel.svg")  
-#ggsave("Figure 3.pdf", height=7, width=7)  
+named_colors = c(
+  "NMC ADNI"="#228B22",
+  "NMC OSTPRE"="#98FB98",
+  "SMC ADNI"="#4682B4",
+  "SMC OSTPRE"="#87CEFA",
+  "MCI ADNI"="#FF8C00",
+  "MCI OSTPRE"="#FFA07A",
+  "Dementia ADNI"="#8B0000",
+  "Dementia OSTPRE"="#CD5C5C"
+)
 
+named_shapes = c(
+  "NMC ADNI"=21,
+  "NMC OSTPRE"=23,
+  "SMC ADNI"=21,
+  "SMC OSTPRE"=23,
+  "MCI ADNI"=21,
+  "MCI OSTPRE"=23,
+  "Dementia ADNI"=21,
+  "Dementia OSTPRE"=23
+)
 
-#coord_flip() # Kääntää koordinaatit
+mdp_panel |> 
+  mutate(
+    sg=paste(status,group)
+  ) |>
+  ggplot(
+    aes(
+      y=predicted, 
+      x=status, 
+      ymin=conf.low, 
+      ymax=conf.high, 
+      color=sg, 
+      shape=group, 
+      fill=sg,
+      group=sg
+    )
+  ) + 
+  facet_wrap(
+    facets = ~para
+  ) +
+  geom_linerange(
+    linewidth=1, 
+    position=position_dodge(width = 0.3)
+  ) +
+  geom_point(
+    size=3, 
+    shape=rep(named_shapes, times=3), 
+    color="white",
+    stroke = 0.5, 
+    position=position_dodge(width = 0.3)
+  ) +
+  scale_color_manual(
+    values = named_colors,
+    limits = c("NMC ADNI","NMC OSTPRE","SMC ADNI","SMC OSTPRE","MCI ADNI","MCI OSTPRE","Dementia ADNI","Dementia OSTPRE")
+  ) +
+  scale_fill_manual(
+    values = named_colors, 
+    limits = c("NMC ADNI","NMC OSTPRE","SMC ADNI","SMC OSTPRE","MCI ADNI","MCI OSTPRE","Dementia ADNI","Dementia OSTPRE")
+  ) +
+  scale_x_discrete(
+    name=""
+  ) +
+  scale_y_continuous(
+    name="Standardized measurement",
+    limits = c(-1.02, 0.7)
+  ) +
+  theme(
+    legend.position="top",
+    legend.title=element_blank()
+  ) +
+  guides(
+    color = guide_legend(
+      override.aes = list(
+        shape=named_shapes, 
+        fill=named_colors
+      )
+    )
+  )
+#ggsave("pred_panel.svg", height=7, width=7) 
+#ggsave("Figure 3 - revised.pdf", height=7, width=7)  
+
 
 # tdp <- ggeffects::test_predictions(mdp)
 # tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
