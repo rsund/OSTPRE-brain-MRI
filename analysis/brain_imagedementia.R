@@ -478,12 +478,59 @@ for (i in 1:length(melist)) {
   
 #paste(as.character(seq(-3,3,by=0.25)),collapse=",")
   mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  # mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp1b <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
   mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
+  mdp2b <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]","gr"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
   mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
   mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
   
-  mdpl[[me]] <- list(m1=m1,mdp1=mdp1,mdp2=mdp2,mdp3=mdp3,mdp=mdp)
+  mdpl[[me]] <- list(m1=m1,mdp1=mdp1,mdp1b=mdp1b,mdp2=mdp2,mdp2b=mdp2b,mdp3=mdp3,mdp=mdp)
+}
+
+mdpl_free <- list()
+for (i in 1:length(melist)) {
+  me <- melist[i]
+  md <- yhd_ana |>
+    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
+    filter(!is.na(meas) & !is.na(Age)) |>
+    mutate(
+      smeas=scale(meas)[,1],
+      nmeas=meas-mean(meas),
+      sTIV=scale(TIV)[,1]
+    )
+  
+  m2 <- lm(smeas ~ gr*splines::bs(Age) + gr*splines::bs(sTIV) + gr*mpf + gr*MF + gr*FS, data=md)
+
+  mdp1 <- ggeffects::predict_response(m2, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp2 <- ggeffects::predict_response(m2, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]","gr"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
+
+  mdpl_free[[me]] <- list(m2=m2,mdp1=mdp1,mdp2=mdp2)
+}
+
+mdpl_sep <- list()
+for (i in 1:length(melist)) {
+  me <- melist[i]
+  md <- yhd_ana |>
+    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
+    filter(!is.na(meas) & !is.na(Age)) |>
+    mutate(
+      smeas=scale(meas)[,1],
+      nmeas=meas-mean(meas),
+      sTIV=scale(TIV)[,1]
+    )
+  
+  md1 <- md |> filter(gr=="ADNI")
+  md2 <- md |> filter(gr=="OSTPRE")
+  
+  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data=md1)
+  m2 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data=md2)
+  
+  mdp1a <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp1b <- ggeffects::predict_response(m2, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+  mdp2a <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
+  mdp2b <- ggeffects::predict_response(m2, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
+  
+  mdpl_sep[[me]] <- list(m1=m1,m2=m2,mdp1a=mdp1a,mdp1b=mdp1b,mdp2a=mdp2a,mdp2b=mdp2b)
 }
 
 # plot(mdp1) + 
@@ -686,3 +733,60 @@ mod_yhd |>
 #ggsave("pred_param.svg")
 #ggsave("Figure 4.pdf",width=5, height=5)
            
+
+
+mod_age_b <- NULL |>
+  bind_rows(as_tibble(c(mdpl_free[["hippocampus"]]$mdp1,gr="Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl_free[["ventricle"]]$mdp1,gr="Ventricle Volume"))) |>
+  bind_rows(as_tibble(c(mdpl_free[["GM_volume"]]$mdp1,gr="Gray Matter Volume"))) |>
+  mutate(para="Age")
+
+mod_tiv_b <- NULL |>
+  bind_rows(as_tibble(c(mdpl_free[["hippocampus"]]$mdp2,gr="Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl_free[["ventricle"]]$mdp2,gr="Ventricle Volume"))) |>
+  bind_rows(as_tibble(c(mdpl_free[["GM_volume"]]$mdp2,gr="Gray Matter Volume"))) |>
+  mutate(para="Standardised TIV")
+
+mod_yhd_b <- mod_age_b |>
+  bind_rows(mod_tiv_b)
+
+mod_yhd_b |>
+  ggplot(aes(x=x,y=predicted,color=gr)) +
+  facet_wrap(~para+group,scale="free_x") +
+  geom_line() +
+  geom_ribbon(data=mod_yhd_b,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
+  theme(legend.position="top",legend.title=element_blank()) +
+  labs(x="",y="Standardized measurement")
+
+
+
+mod_age_c <- NULL |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1a,gr="Hippocampus Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1b,gr="Hippocampus Volume",grp="OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1a,gr="Ventricle Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1b,gr="Ventricle Volume",grp="OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1a,gr="Gray Matter Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1b,gr="Gray Matter Volume",grp="OSTPRE"))) |>
+  mutate(para="Age")
+
+mod_tiv_c <- NULL |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2a,gr="Hippocampus Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2b,gr="Hippocampus Volume",grp="OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2a,gr="Ventricle Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2b,gr="Ventricle Volume",grp="OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2a,gr="Gray Matter Volume",grp="ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2b,gr="Gray Matter Volume",grp="OSTPRE"))) |>
+  mutate(para="Standardised TIV")
+
+mod_yhd_c <- mod_age_c |>
+  bind_rows(mod_tiv_c)
+
+mod_yhd_c |>
+  ggplot(aes(x=x,y=predicted,color=gr)) +
+  facet_wrap(~para+grp,scale="free_x") +
+  geom_line() +
+  geom_ribbon(data=mod_yhd_c,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
+  theme(legend.position="top",legend.title=element_blank()) +
+  labs(x="",y="Standardized measurement")
+#ggsave("pred_param_group.svg",width=10,height=15)
+
