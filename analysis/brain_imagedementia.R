@@ -1,792 +1,587 @@
+# Statistical analyses for the OSTPRE-brain-MRI paper
+# Reijo Sund 3/2025
 
 library(dplyr)
-#bids <- "P:/ostpre_bids"
-#bids <- "/research/groups/ostpre/ostpre_bids"
+library(ggplot2)
 
-qs::qload(file=file.path(bids,"clinical/mem_dates.qs"))
-qs::qload(file=file.path(bids,"nifti/tags.qs"))
+bids <- "P:/ostpre_bids" # Path to data
 
-tags |> distinct(lomno1) |> count()   # Henkilöitä NIfTI konversion jälkeen
-tags |> distinct(lomno1,ses) |> count()   # Sessioita NIfTI konversion jälkeen
-tags |> count() # Erillisiä kuvia/"sekvenssejä"
+# Load data
+qs::qload(file = file.path(bids, "clinical/mem_dates.qs")) # Diagnosis dates for Dementia, MCI and SMC
+qs::qload(file = file.path(bids, "nifti/tags.qs")) # DICOM tags from the NIfTI converted scans
+
+# Number of individuals after NIfTI conversion
+tags |>
+  distinct(lomno1) |>
+  count()
+
+# Number of separate examination visits after NIfTI conversion
+tags |>
+  distinct(lomno1, ses) |>
+  count()
+
+# Number of scans after NIfTI conversion
+tags |> count()
 
 
-# Irrotetaan metadatoista analyyseihin tarvittavat tagit
+# Extraction interesting parameters from the DICOM tags
 reltags <- tags |>
   mutate(
-    StudyID=as.character(StudyInstanceUID),
-    SeriesID=as.character(SeriesInstanceUID),
-    MF=as.character(Manufacturer),
-    SN=as.character(DeviceSerialNumber),
-    MagStre=as.character(MagneticFieldStrength)
+    StudyID = as.character(StudyInstanceUID),
+    SeriesID = as.character(SeriesInstanceUID),
+    MF = as.character(Manufacturer),
+    SN = as.character(DeviceSerialNumber),
+    MagStre = as.character(MagneticFieldStrength)
   ) |>
-  select(lomno1,ses,StudyID,SeriesID,MagneticFieldStrength,Manufacturer,ManufacturersModelName,DeviceSerialNumber,StationName,MF,SN,MagStre) |>
-  distinct() |>
+  select(lomno1, ses, StudyID, SeriesID, MagneticFieldStrength, Manufacturer, ManufacturersModelName, DeviceSerialNumber, StationName, MF, SN, MagStre) |>
+  distinct()
+
+# Load CAT12 summary measures
+imgdata_in <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ostpre_CAT12_summary_measures.xlsx")) |>
   mutate(
-    SN=case_when(
-      SN=="NULL" ~ "25345",     # Manuaalinen korjaus eli jos SerialNumber (jota ei kylläkään käytetä varsinaisissa analyyseissa) puuttuu, niin näyttävät olevan hyvin samanlaisia kuin tämän laitteen (muut) tulokset
-      TRUE ~ SN
-    )
+    lomno1 = as.numeric(gsub("sub-", "", subj)),
+    ses = as.numeric(gsub("ses-", "", session))
   )
 
-imgdata_in <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_CAT12_summary_measures.xlsx")) |>
-  mutate(
-    lomno1=as.numeric(gsub("sub-","",subj)),
-    ses=as.numeric(gsub("ses-","",session))
-  )
+# Results of the outlier analysis comparing parameters from CAT12 and SynthSeg
+outliers <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ostpre_outliers.xlsx"))
 
-outliers <- readxl::read_excel(file.path(bids,"bids/derivatives/summary_measures/ostpre_outliers.xlsx"))
-
+# How many outliers?
 outliers |> count()
-outliers |> distinct(subj) |> count()
 
-outlierdata <- imgdata_in |>  
-  inner_join(outliers, by=c("subj","session")) |>
-  mutate(qual=case_when(
-    quality_percent>68 ~ ">68",
-    TRUE ~ "<=68"
-  ))
+# How many individuals with outliers?
+outliers |>
+  distinct(subj) |>
+  count()
 
-outlierdata |> count(qual)
 
-imgdata <- imgdata_in |>  
-  anti_join(outliers, by=c("subj","session")) # Poistetaan poikkeavat kuvat (todettu myös manuaalisesti kelvottomiksi analyysiin)
+# CAT12 summary measures (outliers excluded)
+imgdata <- imgdata_in |>
+  anti_join(outliers, by = c("subj", "session"))
 
-sessions <- readr::read_delim(file.path(bids,"bids/sessions.csv"),delim=";",col_names=FALSE) |>
+# Number of scans for which there are CAT12 summary measures
+imgdata |> count()
+
+# Number of individuals with scans for which there are CAT12 summary measures
+imgdata |>
+  distinct(lomno1) |>
+  count()
+
+
+# Combine data for visits with detected T1-weighted scans
+sessions <- readr::read_delim(file.path(bids, "bids/sessions.csv"), delim = ";", col_names = FALSE, show_col_types = FALSE) |>
   mutate(
-    lomno1=as.numeric(substr(X6,4,8)),
-    ses=as.numeric(gsub("_","",substr(X6,14,15))),
-    sesdate=as.Date(X1)
+    lomno1 = as.numeric(substr(X6, 4, 8)),
+    ses = as.numeric(gsub("_", "", substr(X6, 14, 15))),
+    sesdate = as.Date(X1)
   ) |>
-  arrange(lomno1,ses) |>
-  select(lomno1,ses,sesdate,StudyID=X2,SeriesID=X3,SeriesName=X4) |>
-  left_join(imgdata, by=c("lomno1","ses")) |>
-  left_join(mem_dates |> rename(lomno1=LOMNO1),by=c("lomno1")) |>
-  left_join(reltags, by=c("SeriesID")) |>
+  arrange(lomno1, ses) |>
+  select(lomno1, ses, sesdate, StudyID = X2, SeriesID = X3, SeriesName = X4) |>
+  left_join(imgdata, by = c("lomno1", "ses")) |>
+  left_join(mem_dates |> rename(lomno1 = LOMNO1), by = c("lomno1")) |>
+  left_join(reltags, by = c("lomno1", "SeriesID")) |>
   mutate(
-    memtype=case_when( # memtypen avulla ryhmittely
-      dem-366 < sesdate ~ "Dementia",
-      atc-366 < sesdate ~ "ATC-Dementia", 
-      mci-366 < sesdate ~ "MCI",  # Mild Congnitive Impairment
-      mem-366 < sesdate ~ "SMC",  # Subjective Memory Complaint
-      dem-366 < mci ~ "Pre MCI-Dementia",
-      dem-366 < mem ~ "Pre SMC-Dementia",
+    memtype = case_when(
+      dem - 366 < sesdate ~ "Dementia",
+      atc - 366 < sesdate ~ "ATC-Dementia",
+      mci - 366 < sesdate ~ "MCI", # Mild Congnitive Impairment
+      mem - 366 < sesdate ~ "SMC", # Subjective Memory Complaint
+      dem - 366 < mci ~ "Pre MCI-Dementia",
+      dem - 366 < mem ~ "Pre SMC-Dementia",
       is.na(dem) & !is.na(mci) ~ "Pre MCI",
       is.na(dem) & !is.na(mem) ~ "Pre SMC",
       !is.na(dem) ~ "Pre Dementia",
       is.na(dem) & is.na(mem) & is.na(atc) ~ "No memory concerns",
       is.na(dem) & is.na(mem) & !is.na(atc) ~ "Pre ATC-Dementia"
     ),
-    img_memtype=as.factor(memtype),
-    age=floor(lubridate::interval(spvm,sesdate)/lubridate::dyears(1)),
-    Age=lubridate::interval(spvm,sesdate)/lubridate::dyears(1),
-    mt=factor(case_when(
-      memtype %in% c("Dementia","ATC-Dementia") ~ "Dementia",
-      grepl("^Pre|^No memory concerns", memtype) ~ "No memory concerns",   # None incl pre
+    Age = lubridate::interval(spvm, sesdate) / lubridate::dyears(1),
+    mt = factor(case_when(
+      memtype %in% c("Dementia", "ATC-Dementia") ~ "Dementia",
+      grepl("^Pre|^No memory concerns", memtype) ~ "No memory concerns",
       TRUE ~ memtype
-    ), levels=c("Dementia","MCI","SMC","No memory concerns")),
-    ORIGPROT=case_when(
-      MF %in% c("GE","Toshiba") ~ "Other",
-      MF %in% c("Philips") ~ "Philips",
-      TRUE ~ paste0(MF,SN)
-      ),
-    FS=case_when(
-      MagStre==3 ~ "3Tesla",
+    ), levels = c("Dementia", "MCI", "SMC", "No memory concerns")),
+    FS = case_when(
+      MagStre == 3 ~ "3Tesla",
       TRUE ~ "1.5Tesla"
     )
   )
 
-clin_sessions <- sessions |>
-  select(lomno1=lomno1.x, sesdate, MF, FS, mt, age, Age, subj:ventricle) |>
-  filter(quality_percent>68)
-
-#readr::write_csv(clin_sessions,"P:/risk_scores/data/sessions.csv")
-
-
-sessions |> count()
-sessions |> distinct(lomno1.x) |> count()
-
-imgdata |> count()
-imgdata |> distinct(lomno1) |> count()
-
-imgdata_in |> count()
-imgdata_in |> distinct(lomno1) |> count()
+sessions |> count() # Number of examination visits with detected T1-weighted scans
+sessions |>
+  distinct(lomno1) |>
+  count() # Number of individuals who had visit with detected T1-weighted scans
 
 
-sessions |> count(MF,SN)
-sessions |> filter(quality_percent>68) |> count(MF,SN) # Vain yli 68 laatuiset valitaan
-sessions |> count(FS)
-
-memdist <- sessions |>
-  filter(quality_percent>10) |>
-  count(age,mt) |>
-  tidyr::pivot_wider(
-    id_cols=age,
-    names_from="mt",
-    values_from="n",
-    values_fill = 0
-  ) |>
-  select(age,2,3,5,4)
-
-#openxlsx::write.xlsx(memdist,file="memagedist.xlsx")
-
-agedist <- sessions |>
-  count(age)
-
-
-library(ggplot2)
-ls <- sessions |>
-  filter(quality_percent>68) |>
-  tidyr::pivot_longer(
-    cols=quality_percent:ventricle
-  )
-
-
-ls |>
-  ggplot(
-    aes(x='',y=value)
-  ) +
-  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scales="free") + #, labeller=set_labels) +
-  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
-  labs(x='', y='')
-  
+# Load relevant data for ADNI cohort
 adni <- readxl::read_excel(file.path(bids, "bids/derivatives/summary_measures/ADNI_CAT12_ostprematched_summary_measures_v2.xlsx")) |>
   filter(DX_bl != "NA") |>
   mutate(
-    img_memtype=factor(case_when(
+    mtyp = factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia",
-      DX_bl %in% c("EMCI","LMCI") ~ "MCI",
+      DX_bl %in% c("EMCI", "LMCI") ~ "MCI",
       DX_bl %in% c("SMC") ~ "SMC",
       TRUE ~ "No memory concerns"
-    ),levels = c("Dementia","MCI","SMC","No memory concerns")),
-    mt=factor(case_when(
+    ), levels = c("Dementia", "MCI", "SMC", "No memory concerns")),
+    mt = factor(case_when(
       DX_bl %in% c("AD") ~ "Dementia - ADNI",
-      DX_bl %in% c("EMCI","LMCI") ~ "MCI - ADNI",
+      DX_bl %in% c("EMCI", "LMCI") ~ "MCI - ADNI",
       DX_bl %in% c("SMC") ~ "SMC - ADNI",
       TRUE ~ "No memory concerns - ADNI"
-    ),levels = c("Dementia - ADNI","MCI - ADNI","SMC - ADNI","No memory concerns - ADNI")),
-    MF=case_when(
-      MANUFACTURER==1 ~ "Siemens",
-      MANUFACTURER==2 ~ "Philips",
-      MANUFACTURER==3 ~ "GE",
+    ), levels = c("Dementia - ADNI", "MCI - ADNI", "SMC - ADNI", "No memory concerns - ADNI")),
+    MF = case_when(
+      MANUFACTURER == 1 ~ "Siemens",
+      MANUFACTURER == 2 ~ "Philips",
+      MANUFACTURER == 3 ~ "GE",
     ),
-    FS=case_when(
-      grepl("^3",FLDSTRENG) ~ "3Tesla",
+    FS = case_when(
+      grepl("^3", FLDSTRENG) ~ "3Tesla",
       TRUE ~ "1.5Tesla"
     )
   ) |>
-  rename(adni_subj=subj) |>
+  rename(adni_subj = subj) |>
   filter(!is.na(Age)) # Remove the participant with missing age
-  
-# adni |> filter(is.na(Age))   # There is one ADNI participant with missing age
-# adni |> filter(quality_percent <= 68) |> count()  # How many scans below the QC threshold
-  
-library(ggplot2)
-ls2 <- adni |>
-  filter(quality_percent>68) |>
-  tidyr::pivot_longer(
-    cols=quality_percent:ventricle
-  ) 
 
-ls2 |>
-  ggplot(
-    aes(x='',y=value)
-  ) +
-  geom_boxplot(aes(fill=mt),position=position_dodge(.9), notch=TRUE) +
-  facet_wrap(~name,scales="free") + #, labeller=set_labels) +
-  stat_summary(fun="mean",aes(group=mt),position=position_dodge(.9), geom="point", shape=4) +
-  labs(x='', y='')
+adni |>
+  filter(quality_percent <= 68) |>
+  count() # How many scans below the QC threshold in the ADNI data
 
-  
-  
+
+# Combine ADNI and OSTPRE data and include only scans with quality score over 68% threshold
 yhd <- adni |>
   bind_rows(sessions) |>
-  filter(quality_percent>68)
+  filter(quality_percent > 68)
 
 
-
-
-qs::qload(file="mri_20250123.qs")
-
-
-
-yhd |> count(MF,FS)
-
-library(ggplot2)
-
-yhd |> 
-  ggplot(
-    aes(x=quality_percent, fill=MF)
-  ) +
-  labs(x='Quality-%', y='') +
-  geom_density(alpha=0.6) +
-  theme(legend.title=element_blank()) +
-  theme(legend.position="top") 
-#ggsave("manuf-quality.svg")
-
-yhd |> 
-  ggplot(
-    aes(x=quality_percent, fill=FS)
-  ) +
-  geom_density(alpha=0.6) +
-  labs(x='Quality-%', y='') +
-  theme(legend.title=element_blank()) +
-  theme(legend.position="top") 
-#ggsave("field-str-quality.svg")
-
+# Create Figure 2
 yls <- yhd |>
   tidyr::pivot_longer(
-    cols=quality_percent:ventricle
-  )
-
-yls_subset <- subset(yls, name %in% c('hippocampus', 'ventricle', 'GM_volume'))
+    cols = quality_percent:ventricle
+  ) |>
+  select(value, mt, name) |>
+  filter(name %in% c("hippocampus", "ventricle", "GM_volume"))
 
 graph_titles <- c(
-  average_thickness="Average thickness",
-  entorhinal_thickness="Entorhinal thickness",
-  GM_volume="Gray Matter",
-  hippocampus="Hippocampus",
-  Jack_signature_CT="Jack Signature CT",
-  quality_IQR="Quality IQR",
-  TIV="TIV",
-  ventricle="Ventricle"
+  GM_volume = "Gray Matter",
+  hippocampus = "Hippocampus",
+  ventricle = "Ventricle"
 )
 
-library(grid)
-# Create a text
-grob_adni <- grobTree(textGrob("ADNI", x=0.17,  y=0.98, hjust=0,gp=gpar(col="#525252", fontsize=10, fontface="italic")))
-grob_ostpre <- grobTree(textGrob("OSTPRE", x=0.6,  y=0.98, hjust=0,gp=gpar(col="#525252", fontsize=10, fontface="italic")))
-# Plot
+grob_adni <- grid::grobTree(grid::textGrob("ADNI", x = 0.17, y = 0.98, hjust = 0, gp = grid::gpar(col = "#525252", fontsize = 10, fontface = "italic")))
+grob_ostpre <- grid::grobTree(grid::textGrob("OSTPRE", x = 0.6, y = 0.98, hjust = 0, gp = grid::gpar(col = "#525252", fontsize = 10, fontface = "italic")))
 
-
-xpla <- c(0,30,55,80) # c(0,40,68,100)
-
+xpla <- c(0, 30, 55, 80)
 polys <- tribble(
   ~group, ~x, ~y,
-  "Dementia", xpla[1]+0, 10, 
-  "Dementia", xpla[1]+10, 0, 
-  "Dementia", xpla[1]+10, 10, 
-  "Dementia - ADNI", xpla[1]+0, 0, 
-  "Dementia - ADNI", xpla[1]+10, 0, 
-  "Dementia - ADNI", xpla[1]+0, 10, 
-  "MCI", xpla[2]+0, 10, 
-  "MCI", xpla[2]+10, 0, 
-  "MCI", xpla[2]+10, 10, 
-  "MCI - ADNI", xpla[2]+0, 0, 
-  "MCI - ADNI", xpla[2]+10, 0, 
-  "MCI - ADNI", xpla[2]+0, 10, 
-  "SMC", xpla[3]+0, 10, 
-  "SMC", xpla[3]+10, 0, 
-  "SMC", xpla[3]+10, 10, 
-  "SMC - ADNI", xpla[3]+0, 0, 
-  "SMC - ADNI", xpla[3]+10, 0, 
-  "SMC - ADNI", xpla[3]+0, 10, 
-  "No memory concerns", xpla[4]+0, 10, 
-  "No memory concerns", xpla[4]+10, 0, 
-  "No memory concerns", xpla[4]+10, 10, 
-  "No memory concerns - ADNI", xpla[4]+0, 0, 
-  "No memory concerns - ADNI", xpla[4]+10, 0, 
-  "No memory concerns - ADNI", xpla[4]+0, 10, 
-  )
+  "Dementia", xpla[1] + 0, 10,
+  "Dementia", xpla[1] + 10, 0,
+  "Dementia", xpla[1] + 10, 10,
+  "Dementia - ADNI", xpla[1] + 0, 0,
+  "Dementia - ADNI", xpla[1] + 10, 0,
+  "Dementia - ADNI", xpla[1] + 0, 10,
+  "MCI", xpla[2] + 0, 10,
+  "MCI", xpla[2] + 10, 0,
+  "MCI", xpla[2] + 10, 10,
+  "MCI - ADNI", xpla[2] + 0, 0,
+  "MCI - ADNI", xpla[2] + 10, 0,
+  "MCI - ADNI", xpla[2] + 0, 10,
+  "SMC", xpla[3] + 0, 10,
+  "SMC", xpla[3] + 10, 0,
+  "SMC", xpla[3] + 10, 10,
+  "SMC - ADNI", xpla[3] + 0, 0,
+  "SMC - ADNI", xpla[3] + 10, 0,
+  "SMC - ADNI", xpla[3] + 0, 10,
+  "No memory concerns", xpla[4] + 0, 10,
+  "No memory concerns", xpla[4] + 10, 0,
+  "No memory concerns", xpla[4] + 10, 10,
+  "No memory concerns - ADNI", xpla[4] + 0, 0,
+  "No memory concerns - ADNI", xpla[4] + 10, 0,
+  "No memory concerns - ADNI", xpla[4] + 0, 10,
+)
 
 texts <- tribble(
   ~group, ~x, ~y,
-  "Dementia", xpla[1]+12, 5,
-  "MCI", xpla[2]+12, 5,
-  "SMC", xpla[3]+12, 5,
-  "No memory complaints", xpla[4]+12, 5,
+  "Dementia", xpla[1] + 12, 5,
+  "MCI", xpla[2] + 12, 5,
+  "SMC", xpla[3] + 12, 5,
+  "No memory complaints", xpla[4] + 12, 5,
+)
+
+viol_colors <- c(
+  "Dementia" = "#CD5C5C",
+  "MCI" = "#FFA07A",
+  "SMC" = "#87CEFA",
+  "No memory concerns" = "#98FB98",
+  "Dementia - ADNI" = "#8B0000",
+  "MCI - ADNI" = "#FF8C00",
+  "SMC - ADNI" = "#4682B4",
+  "No memory concerns - ADNI" = "#228B22"
 )
 
 leg <- ggplot(polys, aes(x = x, y = y)) +
-  geom_polygon(aes(fill = group, group = group), show.legend=FALSE) +
-  geom_text(data=texts,aes(label=group, x=x, y=y, hjust="left")) +
+  geom_polygon(aes(fill = group, group = group), show.legend = FALSE) +
+  geom_text(data = texts, aes(label = group, x = x, y = y, hjust = "left")) +
   scale_fill_manual(
     name = "group",
-    values = c(
-      "Dementia"="#CD5C5C",
-      "MCI"="#FFA07A",
-      "SMC"="#87CEFA",
-      "No memory concerns"="#98FB98",
-      "Dementia - ADNI"="#8B0000",
-      "MCI - ADNI"="#FF8C00",
-      "SMC - ADNI"="#4682B4",
-      "No memory concerns - ADNI"="#228B22"
-    )
-  ) + 
-  theme_void() +
-  expand_limits(x=c(0,140)) #, y=c(0, 200))
-leg
-
-viol <- yls_subset |>
-  select(value,mt,name) |>
-  ggplot(
-    aes(x='', y=value)
+    values = viol_colors
   ) +
-  geom_violin(aes(fill=mt),position=position_dodge(.9),show.legend=FALSE) +
-  facet_wrap(~name, scale="free", labeller=labeller(name = graph_titles)) +
-  labs(x='', y='Volume, ml') +
+  theme_void() +
+  expand_limits(x = c(0, 140)) # , y=c(0, 200))
+
+viol <- yls |>
+  ggplot(
+    aes(x = "", y = value)
+  ) +
+  geom_violin(aes(fill = mt), position = position_dodge(.9), show.legend = FALSE) +
+  facet_wrap(~name, scale = "free", labeller = labeller(name = graph_titles)) +
+  labs(x = "", y = "Volume, ml") +
   scale_fill_manual(
     name = "",
-    values = c(
-      "Dementia"="#CD5C5C",
-      "MCI"="#FFA07A",
-      "SMC"="#87CEFA",
-      "No memory concerns"="#98FB98",
-      "Dementia - ADNI"="#8B0000",
-      "MCI - ADNI"="#FF8C00",
-      "SMC - ADNI"="#4682B4",
-      "No memory concerns - ADNI"="#228B22"
-      ),
-    breaks=c(
-      "Dementia","MCI","SMC","No memory concerns"
+    values = viol_colors,
+    breaks = c(
+      "Dementia", "MCI", "SMC", "No memory concerns"
     )
   ) +
-  theme(legend.position="top") +
+  theme(legend.position = "top") +
   theme(
-    panel.grid.major.x = element_line(color = "blue", size = 0.5, linetype = 2),
-    ) +
+    panel.grid.major.x = element_line(color = "blue", linewidth = 0.5, linetype = 2),
+  ) +
   annotation_custom(grob_adni) +
   annotation_custom(grob_ostpre)
-viol
-
-#fig <- ggpubr::ggarrange(leg,viol,nrow=2,heights=c(1,18),align="v")
 
 cowplot::ggdraw() +
-  cowplot::draw_plot(leg,x=0.15,y=0.90,width=0.85,height=0.070) +
-  cowplot::draw_plot(viol,x=0,y=0,height=0.9)
-#ggsave("violin.svg")
-#ggsave("Figure 2.pdf", width=7, height=5)
+  cowplot::draw_plot(leg, x = 0.15, y = 0.90, width = 0.85, height = 0.070) +
+  cowplot::draw_plot(viol, x = 0, y = 0, height = 0.9)
+
+ggsave("../images/Figure 2.pdf", width = 7, height = 5)
 
 
-
-# yls_subset |>
-#   select(value,mt,name) |>
-#   ggpubr::ggviolin(
-#     x="mt", 
-#     y="value", 
-#     add="boxplot", 
-#     add.params = list(fill = "white"),
-#     fill="mt",
-#     palette=c("#CD5C5C","#FFA07A","#87CEFA","#98FB98","#8B0000","#FF8C00","#4682B4","#228B22"),
-#     breaks=c("Dementia","MCI","SMC","No memory concerns")
-#   ) +
-#   facet_wrap(~name, scale="free", labeller=labeller(name = graph_titles)) +
-#   labs(x='', y='Volume, ml') +
-#   annotation_custom(grob_adni) +
-#   annotation_custom(grob_ostpre)
-
-
-
-
+# Select and harmonize variables to be used in the statistical analyses
 yhd_ana <- yhd |>
   mutate(
-    subj=factor(case_when(
-      is.na(subj) ~ sprintf("ADNI-%05d",adni_subj),
-      TRUE ~ sub("sub","OSTPRE",subj)
+    subj = factor(case_when(
+      is.na(subj) ~ sprintf("ADNI-%05d", adni_subj),
+      TRUE ~ sub("sub", "OSTPRE", subj)
     )),
-    gr=factor(case_when(
-      grepl("^ADNI",subj) ~ "ADNI",
+    gr = factor(case_when(
+      grepl("^ADNI", subj) ~ "ADNI",
       TRUE ~ "OSTPRE"
     )),
-    mtyp=case_when(
-      gr=="OSTPRE" ~ mt,
-      TRUE ~ img_memtype
+    mtyp = case_when(
+      gr == "OSTPRE" ~ mt,
+      TRUE ~ mtyp
     ),
-    mpf=factor(case_when(
-      grepl("^Dementia",mtyp) ~ "3-Dementia",
-      grepl("^MCI",mtyp) ~ "2-MCI",
-      grepl("^SMC",mtyp) ~ "1-SMC",
-      grepl("^No memory concerns",mtyp) ~ "0-No memory concerns"
-    ), labels=c("No memory complaints","SMC","MCI","Dementia")),
-    cage=Age-75,
-    MF=factor(MF),
-    FS=factor(FS)
+    mpf = factor(case_when(
+      grepl("^Dementia", mtyp) ~ "3-Dementia",
+      grepl("^MCI", mtyp) ~ "2-MCI",
+      grepl("^SMC", mtyp) ~ "1-SMC",
+      grepl("^No memory concerns", mtyp) ~ "0-No memory concerns"
+    ), labels = c("No memory complaints", "SMC", "MCI", "Dementia")),
+    cage = Age - 75,
+    MF = factor(MF),
+    FS = factor(FS)
   ) |>
-  select(gr,subj,session,Age,cage,mpf,MF,FS,TIV:ventricle)
+  select(gr, subj, session, Age, cage, mpf, MF, FS, TIV:ventricle)
 
 
-yhd_ana |> count(gr)
-yhd_ana |> filter(gr=="OSTPRE") |> distinct(subj) |> count()
-yhd |> filter(!is.na(subj)) |> count()
-yhd |> filter(!is.na(subj)) |> distinct(subj) |> count()
-
+# Data for Supplementary Figure 2
 memdist_ana <- yhd_ana |>
-  mutate(age=floor(Age)) |>
-  count(gr,age,mpf) |>
+  mutate(age = floor(Age)) |>
+  count(gr, age, mpf) |>
   tidyr::pivot_wider(
-    id_cols=c(gr,age),
-    names_from="mpf",
-    values_from="n",
+    id_cols = c(gr, age),
+    names_from = "mpf",
+    values_from = "n",
     values_fill = 0
   )
+# openxlsx::write.xlsx(memdist_ana,"../memdist_ana.xlsx")
 
-openxlsx::write.xlsx(memdist_ana,"../memdist_ana.xlsx")
 
-# Table 1 tietoja
+# Data for Table 1
+
+# N and age
 yhd_ana |>
   group_by(gr) |>
   summarise(
-    n=n(),
-    nsub=n_distinct(subj),
-    age=mean(Age,na.rm=TRUE),
-    agesd=sd(Age,na.rm=TRUE),
+    n = n(),
+    nsub = n_distinct(subj),
+    age = mean(Age, na.rm = TRUE),
+    agesd = sd(Age, na.rm = TRUE),
   )
 
+# Field Strength
 yhd_ana |>
-  count(gr,mpf) |>
+  count(gr, FS) |>
   group_by(gr) |>
-  mutate(np=n/sum(n)*100)
+  mutate(np = n / sum(n) * 100)
 
+# Manufacturer
 yhd_ana |>
-  count(gr,FS) |>
+  count(gr, MF) |>
   group_by(gr) |>
-  mutate(np=n/sum(n)*100)
+  mutate(np = n / sum(n) * 100)
 
+# Cognitive Status
 yhd_ana |>
-  count(gr,MF) |>
+  count(gr, mpf) |>
   group_by(gr) |>
-  mutate(np=n/sum(n)*100)
+  mutate(np = n / sum(n) * 100)
 
 
+# Estimate the models
 
-melist <- c("hippocampus","ventricle","GM_volume","average_thickness","Jack_signature_CT","entorhinal_thickness")
+library(ggeffects)
+library(marginaleffects)
+library(clubSandwich)
 
-#i <- 1
+melist <- c("hippocampus", "ventricle", "GM_volume")
+
+# Combined cohort
 mdpl <- list()
 for (i in 1:length(melist)) {
   me <- melist[i]
   md <- yhd_ana |>
-    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=hippocampus) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=ventricle) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=GM_volume) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=average_thickness) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=Jack_signature_CT) |>
-    #  select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas=entorhinal_thickness) |>
+    select(gr, subj, Age, cage, mpf, MF, FS, TIV, meas = {{ me }}) |>
     filter(!is.na(meas) & !is.na(Age)) |>
     mutate(
-      smeas=scale(meas)[,1],
-      nmeas=meas-mean(meas),
-      sTIV=scale(TIV)[,1]
+      smeas = scale(meas)[, 1],
+      nmeas = meas - mean(meas),
+      sTIV = scale(TIV)[, 1]
     )
-  
-  # md |> count(gr,mpf)
-  
-  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, data=md)
-  # m1 <- nlme::lme(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr*mpf + MF + FS, random= ~ 1 | subj, data=md)
-  
-#paste(as.character(seq(-3,3,by=0.25)),collapse=",")
-  mdp1 <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp1b <- ggeffects::predict_response(m1, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp2 <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
-  mdp2b <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]","gr"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
-  mdp3 <- ggeffects::predict_response(m1, terms=c("Age [65:85]","mpf", "gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp <- ggeffects::predict_response(m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  
-  mdpl[[me]] <- list(m1=m1,mdp1=mdp1,mdp1b=mdp1b,mdp2=mdp2,mdp2b=mdp2b,mdp3=mdp3,mdp=mdp)
+
+  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + gr * mpf + MF + FS, data = md)
+
+  mdp1 <- ggeffects::predict_response(m1, terms = c("Age [65:90]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md$subj))
+  mdp2 <- ggeffects::predict_response(m1, terms = c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md$subj))
+  mdp <- ggeffects::predict_response(m1, terms = c("mpf", "gr"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md$subj))
+
+  mdpl[[me]] <- list(m1 = m1, mdp1 = mdp1, mdp2 = mdp2, mdp = mdp)
 }
 
-mdpl_free <- list()
-for (i in 1:length(melist)) {
-  me <- melist[i]
-  md <- yhd_ana |>
-    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
-    filter(!is.na(meas) & !is.na(Age)) |>
-    mutate(
-      smeas=scale(meas)[,1],
-      nmeas=meas-mean(meas),
-      sTIV=scale(TIV)[,1]
-    )
-  
-  m2 <- lm(smeas ~ gr*splines::bs(Age) + gr*splines::bs(sTIV) + gr*mpf + gr*MF + gr*FS, data=md)
-
-  mdp1 <- ggeffects::predict_response(m2, terms=c("Age [65:90]","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp2 <- ggeffects::predict_response(m2, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]","gr"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
-
-  mdpl_free[[me]] <- list(m2=m2,mdp1=mdp1,mdp2=mdp2)
-}
-
+# Cohorts separately
 mdpl_sep <- list()
 for (i in 1:length(melist)) {
   me <- melist[i]
   md <- yhd_ana |>
-    select(gr,subj,Age,cage,mpf,MF,FS,TIV,meas={{me}}) |>
+    select(gr, subj, Age, cage, mpf, MF, FS, TIV, meas = {{ me }}) |>
     filter(!is.na(meas) & !is.na(Age)) |>
     mutate(
-      smeas=scale(meas)[,1],
-      nmeas=meas-mean(meas),
-      sTIV=scale(TIV)[,1]
+      smeas = scale(meas)[, 1],
+      nmeas = meas - mean(meas),
+      sTIV = scale(TIV)[, 1]
     )
-  
-  md1 <- md |> filter(gr=="ADNI")
-  md2 <- md |> filter(gr=="OSTPRE")
-  
-  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data=md1)
-  m2 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data=md2)
-  
-  mdp1a <- ggeffects::predict_response(m1, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp1b <- ggeffects::predict_response(m2, terms=c("Age [65:90]"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
-  mdp2a <- ggeffects::predict_response(m1, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
-  mdp2b <- ggeffects::predict_response(m2, terms=c("sTIV [-3,-2.75,-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"),vcov_fun="vcovCR",vcov_type="CR0",vcov_args=list(cluster=md$subj))
-  
-  mdpl_sep[[me]] <- list(m1=m1,m2=m2,mdp1a=mdp1a,mdp1b=mdp1b,mdp2a=mdp2a,mdp2b=mdp2b)
+
+  md1 <- md |> filter(gr == "ADNI")
+  md2 <- md |> filter(gr == "OSTPRE")
+
+  m1 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data = md1)
+  m2 <- lm(smeas ~ splines::bs(Age) + splines::bs(sTIV) + mpf + MF + FS, data = md2)
+
+  mdp1a <- ggeffects::predict_response(m1, terms = c("Age [65:89]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md1$subj))
+  mdp1b <- ggeffects::predict_response(m2, terms = c("Age [65:89]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md2$subj))
+  mdp2a <- ggeffects::predict_response(m1, terms = c("sTIV [-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md1$subj))
+  mdp2b <- ggeffects::predict_response(m2, terms = c("sTIV [-2.5,-2.25,-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = md2$subj))
+
+  mdpl_sep[[me]] <- list(m1 = m1, m2 = m2, mdp1a = mdp1a, mdp1b = mdp1b, mdp2a = mdp2a, mdp2b = mdp2b)
 }
 
-# plot(mdp1) + 
-#   theme(plot.title = element_blank())
-# 
-# plot(mdp2) + 
-#   theme(plot.title = element_blank())
-# 
-# plot(mdp3) + 
-#   theme(plot.title = element_blank(), legend.title=element_blank()) +
-#   theme(legend.position="top") +
-#   labs(x='age', y='standardized volume measure') 
-# #ggsave("hippocampus-compare1.svg")
-# 
-# plot(mdp) +
-#   labs(x='Cognitive status', y='standardized volume measure')  +
-#   theme(legend.title=element_blank())  +
-#   theme(legend.position="top") +
-#   theme(plot.title = element_blank())
-# #ggsave("hippocampus-compare2.svg")
 
+# Create Figure 3
 
-mdp_1 <- as.data.frame(mdpl[["hippocampus"]]$mdp) |> mutate(para="Hippocampus Volume")
-mdp_2 <- as.data.frame(mdpl[["ventricle"]]$mdp) |> mutate(para="Ventricle Volume")
-mdp_3 <- as.data.frame(mdpl[["GM_volume"]]$mdp) |> mutate(para="Gray Matter Volume")
+mdp_1 <- as.data.frame(mdpl[["GM_volume"]]$mdp) |> mutate(para = "Gray Matter Volume")
+mdp_2 <- as.data.frame(mdpl[["hippocampus"]]$mdp) |> mutate(para = "Hippocampus Volume")
+mdp_3 <- as.data.frame(mdpl[["ventricle"]]$mdp) |> mutate(para = "Ventricle Volume")
 
 mdp_panel <- mdp_1 |>
   bind_rows(mdp_2) |>
   bind_rows(mdp_3) |>
   mutate(
-    status=factor(case_when(
+    status = factor(case_when(
       x == "No memory complaints" ~ "NMC",
       TRUE ~ x
-    ), levels = c("NMC","SMC","MCI","Dementia"))
-  ) 
-  
-#qs::qsavem(yhd,mdpl,mdp_panel,file="mri_20250123.qs")
+    ), levels = c("NMC", "SMC", "MCI", "Dementia"))
+  )
 
-
-named_colors = c(
-  "NMC ADNI"="#228B22",
-  "NMC OSTPRE"="#98FB98",
-  "SMC ADNI"="#4682B4",
-  "SMC OSTPRE"="#87CEFA",
-  "MCI ADNI"="#FF8C00",
-  "MCI OSTPRE"="#FFA07A",
-  "Dementia ADNI"="#8B0000",
-  "Dementia OSTPRE"="#CD5C5C"
+named_colors <- c(
+  "NMC ADNI" = "#228B22",
+  "NMC OSTPRE" = "#98FB98",
+  "SMC ADNI" = "#4682B4",
+  "SMC OSTPRE" = "#87CEFA",
+  "MCI ADNI" = "#FF8C00",
+  "MCI OSTPRE" = "#FFA07A",
+  "Dementia ADNI" = "#8B0000",
+  "Dementia OSTPRE" = "#CD5C5C"
 )
 
-named_shapes = c(
-  "NMC ADNI"=21,
-  "NMC OSTPRE"=23,
-  "SMC ADNI"=21,
-  "SMC OSTPRE"=23,
-  "MCI ADNI"=21,
-  "MCI OSTPRE"=23,
-  "Dementia ADNI"=21,
-  "Dementia OSTPRE"=23
+named_shapes <- c(
+  "NMC ADNI" = 21,
+  "NMC OSTPRE" = 23,
+  "SMC ADNI" = 21,
+  "SMC OSTPRE" = 23,
+  "MCI ADNI" = 21,
+  "MCI OSTPRE" = 23,
+  "Dementia ADNI" = 21,
+  "Dementia OSTPRE" = 23
 )
 
-mdp_panel |> 
+mdp_panel |>
   mutate(
-    sg=paste(status,group)
+    sg = paste(status, group)
   ) |>
   ggplot(
     aes(
-      y=predicted, 
-      x=status, 
-      ymin=conf.low, 
-      ymax=conf.high, 
-      color=sg, 
-      shape=group, 
-      fill=sg,
-      group=sg
+      y = predicted,
+      x = status,
+      ymin = conf.low,
+      ymax = conf.high,
+      color = sg,
+      shape = group,
+      fill = sg,
+      group = sg
     )
-  ) + 
+  ) +
   facet_wrap(
     facets = ~para
   ) +
   geom_linerange(
-    linewidth=1, 
-    position=position_dodge(width = 0.3)
+    linewidth = 1,
+    position = position_dodge(width = 0.3)
   ) +
   geom_point(
-    size=3, 
-    shape=rep(named_shapes, times=3), 
-    color="white",
-    stroke = 0.5, 
-    position=position_dodge(width = 0.3)
+    size = 3,
+    shape = rep(named_shapes, times = 3),
+    color = "white",
+    stroke = 0.5,
+    position = position_dodge(width = 0.3)
   ) +
   scale_color_manual(
     values = named_colors,
-    limits = c("NMC ADNI","NMC OSTPRE","SMC ADNI","SMC OSTPRE","MCI ADNI","MCI OSTPRE","Dementia ADNI","Dementia OSTPRE")
+    limits = c("NMC ADNI", "NMC OSTPRE", "SMC ADNI", "SMC OSTPRE", "MCI ADNI", "MCI OSTPRE", "Dementia ADNI", "Dementia OSTPRE")
   ) +
   scale_fill_manual(
-    values = named_colors, 
-    limits = c("NMC ADNI","NMC OSTPRE","SMC ADNI","SMC OSTPRE","MCI ADNI","MCI OSTPRE","Dementia ADNI","Dementia OSTPRE")
+    values = named_colors,
+    limits = c("NMC ADNI", "NMC OSTPRE", "SMC ADNI", "SMC OSTPRE", "MCI ADNI", "MCI OSTPRE", "Dementia ADNI", "Dementia OSTPRE")
   ) +
   scale_x_discrete(
-    name=""
+    name = ""
   ) +
   scale_y_continuous(
-    name="Standardized measurement",
+    name = "Standardized measurement",
     limits = c(-1.02, 0.7)
   ) +
   theme(
-    legend.position="top",
-    legend.title=element_blank()
+    legend.position = "top",
+    legend.title = element_blank()
   ) +
   guides(
     color = guide_legend(
       override.aes = list(
-        shape=named_shapes, 
-        fill=named_colors
+        shape = named_shapes,
+        fill = named_colors
       )
     )
   )
-#ggsave("pred_panel.svg", height=7, width=7) 
-#ggsave("Figure 3 - revised.pdf", height=7, width=7)  
+
+ggsave("../images/Figure 3.pdf", height = 7, width = 7)
 
 
-# tdp <- ggeffects::test_predictions(mdp)
-# tdp # Täältä näkyvät kiinnostavat kontrastit (OSTPRE-OSTPRE ja ADNI-ADNI), mutta on ylimääräisiä mukana
-# 
-# dd_tpd <- ggeffects::test_predictions(
-#   mdp, 
-#   test=c(
-#     "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
-#     "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
-#     "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
-#     "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
-#     )
-#   )
-# dd_tpd # Tämä lisäksi OSTPRE-ADNI vertailu kiinnostavien asioiden osalta
+# Table 2
 
-
-m1p <- ggeffects::predict_response(mdpl[["GM_volume"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+# Grey matter volume
+m1p <- ggeffects::predict_response(mdpl[["GM_volume"]]$m1, terms = c("mpf", "gr"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = yhd_ana$subj))
 ggeffects::test_predictions(m1p)
 ggeffects::test_predictions(
-  m1p, 
-  test=c(
-    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
-    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
-    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
-    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+  m1p,
+  test = c(
+    "(b1 - b2) = (b5 - b6)", # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)", # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)", # None vs Dementia difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)" # MCI vs Dementia difference between ADNI and OSTPRE
   )
 )
 
-m2p <- ggeffects::predict_response(mdpl[["hippocampus"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+# Hippocampus volume
+m2p <- ggeffects::predict_response(mdpl[["hippocampus"]]$m1, terms = c("mpf", "gr"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = yhd_ana$subj))
 ggeffects::test_predictions(m2p)
 ggeffects::test_predictions(
-  m2p, 
-  test=c(
-    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
-    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
-    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
-    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+  m2p,
+  test = c(
+    "(b1 - b2) = (b5 - b6)", # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)", # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)", # None vs Dementia difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)" # MCI vs Dementia difference between ADNI and OSTPRE
   )
 )
 
-
-m3p <- ggeffects::predict_response(mdpl[["ventricle"]]$m1, terms=c("mpf","gr"), vcov_fun="vcovCR", vcov_type="CR0", vcov_args=list(cluster=md$subj))
+# Ventricle volume
+m3p <- ggeffects::predict_response(mdpl[["ventricle"]]$m1, terms = c("mpf", "gr"), vcov_fun = "vcovCR", vcov_type = "CR0", vcov_args = list(cluster = yhd_ana$subj))
 ggeffects::test_predictions(m3p)
 ggeffects::test_predictions(
-  m3p, 
-  test=c(
-    "(b1 - b2) = (b5 - b6)",   # None vs SMC difference between ADNI and OSTPRE
-    "(b1 - b3) = (b5 - b7)",   # None vs MCI difference between ADNI and OSTPRE
-    "(b1 - b4) = (b5 - b8)",   # None vs Dementia difference between ADNI and OSTPRE
-    "(b3 - b4) = (b7 - b8)"    # MCI vs Dementia difference between ADNI and OSTPRE
+  m3p,
+  test = c(
+    "(b1 - b2) = (b5 - b6)", # None vs SMC difference between ADNI and OSTPRE
+    "(b1 - b3) = (b5 - b7)", # None vs MCI difference between ADNI and OSTPRE
+    "(b1 - b4) = (b5 - b8)", # None vs Dementia difference between ADNI and OSTPRE
+    "(b3 - b4) = (b7 - b8)" # MCI vs Dementia difference between ADNI and OSTPRE
   )
 )
 
 
-
+# Create Figure 4
 
 mod_age <- NULL |>
-  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp1,gr="Hippocampus Volume"))) |>
-  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp1,gr="Ventricle Volume"))) |>
-  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp1,gr="Gray Matter Volume"))) |>
-  mutate(para="Age")
+  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp1, gr = "Gray Matter Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp1, gr = "Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp1, gr = "Ventricle Volume"))) |>
+  mutate(para = "Age")
 
 mod_tiv <- NULL |>
-  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp2,gr="Hippocampus Volume"))) |>
-  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp2,gr="Ventricle Volume"))) |>
-  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp2,gr="Gray Matter Volume"))) |>
-  mutate(para="Standardised TIV")
+  bind_rows(as_tibble(c(mdpl[["GM_volume"]]$mdp2, gr = "Gray Matter Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["hippocampus"]]$mdp2, gr = "Hippocampus Volume"))) |>
+  bind_rows(as_tibble(c(mdpl[["ventricle"]]$mdp2, gr = "Ventricle Volume"))) |>
+  mutate(para = "Standardised TIV")
 
 mod_yhd <- mod_age |>
   bind_rows(mod_tiv)
 
 mod_yhd |>
-  ggplot(aes(x=x,y=predicted,colour=gr)) +
-  facet_wrap(~para,scale="free_x") +
+  ggplot(aes(x = x, y = predicted, colour = gr)) +
+  facet_wrap(~para, scale = "free_x") +
   geom_line() +
-  geom_ribbon(data=mod_yhd,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
-  theme(legend.position="top",legend.title=element_blank()) +
-  labs(x="",y="Standardized measurement")
-#ggsave("pred_param.svg")
-#ggsave("Figure 4.pdf",width=5, height=5)
-           
+  geom_ribbon(data = mod_yhd, aes(ymin = conf.low, ymax = conf.high), alpha = 0.1) +
+  theme(legend.position = "top", legend.title = element_blank()) +
+  labs(x = "", y = "Standardized measurement")
+
+ggsave("../images/Figure 4.pdf", width = 5, height = 5)
 
 
-mod_age_b <- NULL |>
-  bind_rows(as_tibble(c(mdpl_free[["hippocampus"]]$mdp1,gr="Hippocampus Volume"))) |>
-  bind_rows(as_tibble(c(mdpl_free[["ventricle"]]$mdp1,gr="Ventricle Volume"))) |>
-  bind_rows(as_tibble(c(mdpl_free[["GM_volume"]]$mdp1,gr="Gray Matter Volume"))) |>
-  mutate(para="Age")
+# Create Supplementary Figure 4
+mod_age_sep <- NULL |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1a, gr = "Gray Matter Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1b, gr = "Gray Matter Volume", grp = "OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1a, gr = "Hippocampus Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1b, gr = "Hippocampus Volume", grp = "OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1a, gr = "Ventricle Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1b, gr = "Ventricle Volume", grp = "OSTPRE"))) |>
+  mutate(para = "Age")
 
-mod_tiv_b <- NULL |>
-  bind_rows(as_tibble(c(mdpl_free[["hippocampus"]]$mdp2,gr="Hippocampus Volume"))) |>
-  bind_rows(as_tibble(c(mdpl_free[["ventricle"]]$mdp2,gr="Ventricle Volume"))) |>
-  bind_rows(as_tibble(c(mdpl_free[["GM_volume"]]$mdp2,gr="Gray Matter Volume"))) |>
-  mutate(para="Standardised TIV")
+mod_tiv_sep <- NULL |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2a, gr = "Gray Matter Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2b, gr = "Gray Matter Volume", grp = "OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2a, gr = "Hippocampus Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2b, gr = "Hippocampus Volume", grp = "OSTPRE"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2a, gr = "Ventricle Volume", grp = "ADNI"))) |>
+  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2b, gr = "Ventricle Volume", grp = "OSTPRE"))) |>
+  mutate(para = "Standardised TIV")
 
-mod_yhd_b <- mod_age_b |>
-  bind_rows(mod_tiv_b)
+mod_yhd_sep <- mod_age_sep |>
+  bind_rows(mod_tiv_sep)
 
-mod_yhd_b |>
-  ggplot(aes(x=x,y=predicted,color=gr)) +
-  facet_wrap(~para+group,scale="free_x") +
+mod_yhd_sep |>
+  ggplot(aes(x = x, y = predicted, color = gr)) +
+  facet_wrap(~ para + grp, scale = "free_x") +
   geom_line() +
-  geom_ribbon(data=mod_yhd_b,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
-  theme(legend.position="top",legend.title=element_blank()) +
-  labs(x="",y="Standardized measurement")
+  geom_ribbon(data = mod_yhd_sep, aes(ymin = conf.low, ymax = conf.high), alpha = 0.1) +
+  theme(legend.position = "top", legend.title = element_blank()) +
+  labs(x = "", y = "Standardized measurement")
 
-
-
-mod_age_c <- NULL |>
-  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1a,gr="Hippocampus Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp1b,gr="Hippocampus Volume",grp="OSTPRE"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1a,gr="Ventricle Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp1b,gr="Ventricle Volume",grp="OSTPRE"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1a,gr="Gray Matter Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp1b,gr="Gray Matter Volume",grp="OSTPRE"))) |>
-  mutate(para="Age")
-
-mod_tiv_c <- NULL |>
-  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2a,gr="Hippocampus Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["hippocampus"]]$mdp2b,gr="Hippocampus Volume",grp="OSTPRE"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2a,gr="Ventricle Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["ventricle"]]$mdp2b,gr="Ventricle Volume",grp="OSTPRE"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2a,gr="Gray Matter Volume",grp="ADNI"))) |>
-  bind_rows(as_tibble(c(mdpl_sep[["GM_volume"]]$mdp2b,gr="Gray Matter Volume",grp="OSTPRE"))) |>
-  mutate(para="Standardised TIV")
-
-mod_yhd_c <- mod_age_c |>
-  bind_rows(mod_tiv_c)
-
-mod_yhd_c |>
-  ggplot(aes(x=x,y=predicted,color=gr)) +
-  facet_wrap(~para+grp,scale="free_x") +
-  geom_line() +
-  geom_ribbon(data=mod_yhd_c,aes(ymin=conf.low,ymax=conf.high),alpha=0.1) +
-  theme(legend.position="top",legend.title=element_blank()) +
-  labs(x="",y="Standardized measurement")
-#ggsave("pred_param_group.svg",width=10,height=15)
-
+ggsave("../images/Supplementary Figure 4.svg", width = 10, height = 15)
